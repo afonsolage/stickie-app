@@ -44,26 +44,28 @@ Design rules that keep the game unaffected:
 
 | Path | Responsibility |
 | --- | --- |
-| `src/main.rs` | Thin binary entry point. |
-| `src/lib.rs` | Public crate surface and plugin wiring. |
-| `src/app.rs` | Bevy app/plugins, overlay controller state machine, autosave. |
-| `src/config.rs` | Hotkey parsing/normalisation and app defaults. |
-| `src/hotkey.rs` | Hotkey spec type and platform binding. |
-| `src/platform/mod.rs` | Cross-platform facade: game probe, capture, reveal, focus, hotkey. |
-| `src/platform/windows.rs` | Win32 implementations (foreground process, monitor capture, etc.). |
+| `src/main.rs` | Thin binary entry point and fatal-error reporting. |
+| `src/lib.rs` | Public crate surface and four-layer module boundary. |
+| `src/app.rs` | Bevy app/plugins, overlay controller state machine, capture lifecycle, hotkey wakeups. |
+| `src/platform/mod.rs` | Cross-platform facade and pure helpers: game probe ids, shell-window filtering, display names, hotkey labels. |
+| `src/platform/windows.rs` | Win32 foreground-process probe, Graphics Capture, focus restore and Explorer integration. |
+| `src/platform/hotkey.rs` | Global hotkey registration, fallback/rebind and the non-Windows stub. |
 | `src/platform/stub.rs` | Non-Windows development fallbacks. |
-| `src/store/mod.rs` | App data paths, config persistence, workspace model/storage. |
+| `src/store/mod.rs` | App data paths, config persistence and the `Store` facade. |
 | `src/store/workspace.rs` | Workspace manifest, folders, notes, stickies, screenshots. |
-| `src/ui/mod.rs` | eframe-free egui overlay composition. |
-| `src/ui/shell.rs` | Scrim, command surface, navigation rail, status line. |
-| `src/ui/notepad.rs` | Markdown notepad tab. |
+| `src/ui/mod.rs` | Overlay shell composition: scrim, surface, navigation rail, status/toasts and painted icons. |
+| `src/ui/theme.rs` | Design tokens, typography, frames and reusable widgets. |
+| `src/ui/editor_md.rs` | Markdown editor/preview component and pure formatting helpers. |
+| `src/ui/screenshot_editor.rs` | Crop/pen/rect/arrow editor with annotated-PNG export. |
+| `src/ui/notepad.rs` | Notes tab: file list + Markdown editor integration + debounced save. |
 | `src/ui/stickies.rs` | Sticky notes board. |
-| `src/ui/files.rs` | Workspace folder browser. |
-| `src/ui/screenshot.rs` | Screenshot library + crop/draw editor. |
-| `src/ui/settings.rs` | Settings tab (hotkey, opacity, data location). |
+| `src/ui/files.rs` | Workspace folder browser and folder creation. |
+| `src/ui/screenshots.rs` | Screenshot library and editor integration. |
+| `src/ui/settings.rs` | Settings tab (hotkey, opacity, start-hidden, data location). |
 
-The final split may consolidate small modules; the important boundary is
-**platform / store / UI / app controller**.
+The important boundary is **platform / store / UI / app controller**. The
+`examples/component_gallery.rs` binary includes the UI modules directly so the
+design system and editors can be reviewed without the overlay window.
 
 ## Game identity and workspace layout
 
@@ -98,11 +100,12 @@ Nothing is uploaded; Stickie has no network code.
 
 ```rust
 pub struct GameContext {
-    pub workspace_id: String,      // stable, sanitised
+    pub workspace_id: String,      // stable, sanitised, e.g. "exe:eldenring"
     pub display_name: String,
     pub executable: Option<String>,
     pub window_title: Option<String>,
     pub process_id: Option<u32>,
+    pub window_handle: Option<isize>,
 }
 
 pub fn overlay_supported() -> bool;
@@ -127,7 +130,7 @@ Key operations:
 
 ```rust
 Store::bootstrap() -> Result<Store>;
-store.open_workspace(&GameContext) -> Result<()>;   // get or create dirs + manifest
+store.open_workspace(WorkspaceDescriptor) -> Result<&Workspace>; // get-or-create dirs + manifest
 store.set_last_folder(rel_path) -> Result<()>;
 store.list_notes() -> Result<Vec<NoteEntry>>;
 store.create_note() -> Result<NoteEntry>;
@@ -152,10 +155,14 @@ Visible --capture--> Capturing --> Visible (editor opened)
 
 - Show: probe game, open workspace, refresh file tree, request focus, show.
 - Hide: debounce-save editor/stickies, hide window, restore focus to game.
-- The overlay never renders a frame while hidden. Winit reactive mode is
-  configured with a very long wait; only hotkey/OS wakeups resume the loop.
-- Escape hides the overlay. Text fields keep Escape for themselves if needed
-  (the UI handles focus priority before hiding).
+- The overlay never renders a frame while hidden. Winit reactive mode uses a
+  one-hour wait while unfocused; only hotkey/OS wakeups or explicit redraws
+  resume the loop.
+- Escape hides the overlay (and autosaves the open note). The overlay also closes
+  if the user presses the global hotkey again.
+- Screenshot capture hides the overlay, waits ~180 ms for composition to settle,
+  captures on a worker thread, then reopens the editor on the same frame cycle.
+  The overlay remains hidden while the raw PNG is written to the workspace.
 
 ## Performance targets
 
@@ -168,7 +175,11 @@ Visible --capture--> Capturing --> Visible (editor opened)
 | Hotkey registration | global OS hotkey, no input hooks |
 
 Release builds use `lto = "thin"`, `codegen-units = 1`, `panic = "abort"`, and
-the minimal Bevy feature set in `Cargo.toml`.
+the minimal Bevy feature set in `Cargo.toml`. Screenshot capture uses Windows
+Graphics Capture, and capture runs on a dedicated worker thread. Annotation is
+rasterized synchronously when the user saves (a candidate for a future worker
+task on very large screenshots). The targets above are goals; the first Windows
+performance pass is still pending.
 
 ## Security / privacy
 
@@ -176,6 +187,6 @@ the minimal Bevy feature set in `Cargo.toml`.
 - Paths are always joined under the selected workspace root; list operations
   reject `..` traversal.
 - Global hotkey registration is per-user and does not require elevation.
-- The app never injects into other processes. That also means anti-cheat
-  compatibility is better than injected overlays, but exclusive-fullscreen
-  games are not covered.
+- The app never injects into other processes or reads game memory. That is less
+  invasive than an injected overlay, but it is not an anti-cheat compatibility
+  guarantee; exclusive-fullscreen games are not covered.

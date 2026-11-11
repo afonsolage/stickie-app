@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 description = "Lightweight in-game overlay for notes, stickies and screenshots"
-license = "MIT OR Apache-2.0"
+authors = ["Afonso Lage"]
+readme = "README.md"
+publish = false
+license = "MIT"
 repository = "https://github.com/afonsolage/stickie-app"
 homepage = "https://github.com/afonsolage/stickie-app"
 keywords = ["bevy", "overlay", "notes", "gaming", "egui"]
@@ -35,11 +38,9 @@ bevy_egui = { version = "0.43.1", default-features = false, features = [
 ] }
 egui_commonmark = "0.25"
 anyhow = "1"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
 toml = "1.2"
 directories = "6"
 
@@ -47,10 +48,11 @@ directories = "6"
 global-hotkey = "0.10"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_System_Com",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
-xcap = "0.9"
+xcap = { version = "0.9", default-features = false, features = ["wgc"] }
 
 [profile.dev]
 opt-level = 0
@@ -62,14 +64,10 @@ opt-level = 2
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+strip = "symbols"
 
 [lints.rust]
 unsafe_code = "deny"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-module_name_repetitions = "allow"
-must_use_candidate = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
