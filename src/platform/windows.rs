@@ -34,9 +34,9 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow,
-    GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SW_RESTORE, SetForegroundWindow,
-    ShowWindow, WS_EX_TOOLWINDOW,
+    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow,
+    IsWindowVisible, SMTO_ABORTIFHUNG, SMTO_BLOCK, SW_RESTORE, SendMessageTimeoutW,
+    SetForegroundWindow, ShowWindow, WM_GETTEXT, WM_GETTEXTLENGTH, WS_EX_TOOLWINDOW,
 };
 
 use super::{
@@ -376,21 +376,55 @@ fn window_is_large_enough(window: HWND) -> bool {
 
 /// Reads the window title. Returns [`None`] for empty titles and on failure.
 fn read_window_title(window: HWND) -> Option<String> {
-    // SAFETY: `window` is a valid HWND and `GetWindowTextLengthW` is a pure
-    // query; a length of 0 means "no title or inaccessible".
-    let length = unsafe { GetWindowTextLengthW(window) };
-    if length <= 0 {
+    // Cross-process `GetWindowTextW` sends WM_GETTEXT synchronously, which can
+    // block forever when the foreground application has a hung UI thread (or is
+    // slow to start). SendMessageTimeout + SMTO_ABORTIFHUNG keeps the overlay
+    // responsive: the title is optional metadata, never worth a hang.
+    const TIMEOUT_MS: u32 = 50;
+    let flags = SMTO_ABORTIFHUNG | SMTO_BLOCK;
+    let mut result: usize = 0;
+
+    // SAFETY: `window` is a valid HWND. The result pointer is valid for the
+    // duration of the call, and the timeout/abort flag prevents a hung target
+    // from blocking the game probe indefinitely.
+    let length_ok = unsafe {
+        SendMessageTimeoutW(
+            window,
+            WM_GETTEXTLENGTH,
+            0,
+            0,
+            flags,
+            TIMEOUT_MS,
+            &raw mut result,
+        )
+    };
+    if length_ok == 0 || result == 0 {
         return None;
     }
-    let capacity = (usize::try_from(length).unwrap_or(0) + 1).min(MAX_WINDOW_TITLE_CHARS);
+
+    let capacity = (result + 1).min(MAX_WINDOW_TITLE_CHARS);
     let mut buffer = vec![0u16; capacity];
-    // SAFETY: `window` is valid and `buffer` is allocated for `buffer.len()`
-    // UTF-16 code units; `GetWindowTextW` writes at most that many units.
-    let copied = unsafe { GetWindowTextW(window, buffer.as_mut_ptr(), buffer.len() as i32) };
-    if copied <= 0 {
+    // SAFETY: same window; `buffer` is exclusively owned and writable for
+    // `capacity` UTF-16 units. WM_GETTEXT copies at most wParam characters and
+    // null-terminates the buffer.
+    let copied_ok = unsafe {
+        SendMessageTimeoutW(
+            window,
+            WM_GETTEXT,
+            capacity,
+            buffer.as_mut_ptr().cast::<core::ffi::c_void>() as isize,
+            flags,
+            TIMEOUT_MS,
+            &raw mut result,
+        )
+    };
+    if copied_ok == 0 {
         return None;
     }
-    let copied = (usize::try_from(copied).unwrap_or(0)).min(buffer.len());
+    let copied = result.min(capacity.saturating_sub(1));
+    if copied == 0 {
+        return None;
+    }
     Some(String::from_utf16_lossy(&buffer[..copied]))
 }
 

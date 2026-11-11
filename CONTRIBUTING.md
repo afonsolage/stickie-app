@@ -25,6 +25,10 @@ On Linux, the overlay opens windowed and starts visible; global hotkeys and
 screen capture are stubs there. Use `STICKIE_SHOW_ON_START=1` to force a visible
 overlay.
 
+For the real Windows overlay while developing in WSL, install `cargo-xwin` plus
+a toolchain with the `x86_64-pc-windows-msvc` target and run `just c`. Dev runs
+start visible; `STICKIE_SHOW_ON_START=0 just c` tests the hidden/hotkey path.
+
 Optional local data directory for testing:
 
 ```bash

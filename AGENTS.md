@@ -29,6 +29,7 @@ cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 STICKIE_SHOW_ON_START=1 cargo run
+just c   # cross-compile + launch the Windows client from WSL
 ```
 
 Cargo registry access is normal on developer machines; in sandboxed

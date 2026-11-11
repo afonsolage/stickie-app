@@ -102,6 +102,36 @@ STICKIE_SHOW_ON_START=1 cargo run
 The dev shortcut to toggle is `Ctrl + Shift + Tab`; see
 [docs/architecture.md](docs/architecture.md) for the platform boundary.
 
+### Running the Windows client from WSL
+
+Stickie can be cross-compiled and launched natively on Windows from WSL, which
+makes manual overlay testing much faster than copying binaries around:
+
+```bash
+# one-time setup
+cargo install cargo-xwin
+rustup target add x86_64-pc-windows-msvc
+
+# build and launch
+just c
+```
+
+`just c` (alias for `just client-win`) detects an installed Rust toolchain with
+the Windows MSVC target, cross-compiles through `cargo-xwin`, and launches
+`target/x86_64-pc-windows-msvc/debug/stickie.exe` through WSL interop. Dev runs
+start visible by default; use `STICKIE_SHOW_ON_START=0 just c` to test the hidden
+startup/hotkey flow, or `STICKIE_WIN_PROFILE=release just c` for an optimised
+build. Windows logs are forwarded to the WSL terminal via `WSLENV`.
+
+If the automatic toolchain detection does not find one, point it explicitly:
+
+```bash
+STICKIE_WIN_TOOLCHAIN=nightly-2026-08-15 just c
+```
+
+The app still stores data under `%APPDATA%\Stickie` on the Windows side; use
+`STICKIE_DATA_DIR` with a Windows path if you want a disposable test workspace.
+
 ## Where your data lives
 
 ```text

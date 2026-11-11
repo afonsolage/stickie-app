@@ -32,7 +32,9 @@ Design rules that keep the game unaffected:
 1. The overlay window is hidden and Bevy is in winit's reactive low-power
    update mode except while the user has the overlay open.
 2. No background game polling. The foreground game is probed once when the
-   overlay is opened; while the overlay is closed the app does no work.
+   overlay is opened; while the overlay is closed the app does no work. Window
+   titles are read with a 50 ms `SendMessageTimeout` so a hung foreground app
+   cannot freeze Stickie's startup.
 3. Bevy is built without audio, 3D, PBR, physics, or Bevy UI. Rendering is a
    single transparent camera + egui pipeline.
 4. Global hotkey handling runs through a lightweight Win32 message-only window
