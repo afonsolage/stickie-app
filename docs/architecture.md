@@ -83,7 +83,7 @@ readable exe name. Steam app-id based ids and manual per-game naming are a
 follow-up (`steam:<appid>` remains a compatible future id format).
 
 ```text
-%APPDATA%/Stickie/                   (ProjectDirs, overridable with STICKIE_DATA_DIR)
+%APPDATA%/Stickie/data/              (ProjectDirs, overridable with STICKIE_DATA_DIR)
 ├── config.toml                      # hotkey, overlay opacity, last workspace
 ├── logs/
 └── workspaces/

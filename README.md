@@ -109,6 +109,7 @@ makes manual overlay testing much faster than copying binaries around:
 
 ```bash
 # one-time setup
+cargo install just
 cargo install cargo-xwin
 rustup target add x86_64-pc-windows-msvc
 
@@ -129,14 +130,16 @@ If the automatic toolchain detection does not find one, point it explicitly:
 STICKIE_WIN_TOOLCHAIN=nightly-2026-08-15 just c
 ```
 
-The app still stores data under `%APPDATA%\Stickie` on the Windows side; use
-`STICKIE_DATA_DIR` with a Windows path if you want a disposable test workspace.
+The app still stores data under `%APPDATA%\Stickie\data` on the Windows side;
+use `STICKIE_DATA_DIR` with a Windows path if you want a disposable test
+workspace.
 
 ## Where your data lives
 
 ```text
-%APPDATA%\Stickie\
+%APPDATA%\Stickie\data\
 ├── config.toml
+├── logs\
 └── workspaces\
     └── exe-eldenring\
         ├── workspace.toml      # display name, stickies, last folder
