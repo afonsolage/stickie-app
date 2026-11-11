@@ -58,7 +58,7 @@ impl NotesTab {
         if store.workspace().is_none() {
             theme::empty_state(
                 ui,
-                "🗋",
+                "N",
                 "No workspace yet",
                 "Stickie creates a private note space per game. Open the overlay while a game is \
                  in front to get started.",
@@ -147,7 +147,7 @@ impl NotesTab {
                 if !self.editor.is_open() {
                     if theme::empty_state(
                         ui,
-                        "🗋",
+                        "N",
                         "Pick a note, or start a new one",
                         "Notes are Markdown, with a live preview and no lock-in. Everything stays \
                          in this game's workspace folder.",

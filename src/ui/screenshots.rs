@@ -133,7 +133,7 @@ impl ScreenshotsTab {
         if self.captures.is_empty() {
             let action = theme::empty_state(
                 ui,
-                "◫",
+                "C",
                 "No screenshots yet",
                 if capture_supported {
                     "Capture the game window, then crop and draw on the result before saving it \

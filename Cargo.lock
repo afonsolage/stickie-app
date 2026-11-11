@@ -4822,6 +4822,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "bevy_egui",
+ "blake3",
  "directories",
  "egui_commonmark",
  "global-hotkey",

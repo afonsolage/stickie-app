@@ -84,7 +84,7 @@ impl FilesTab {
         if store.workspace().is_none() {
             theme::empty_state(
                 ui,
-                "▤",
+                "F",
                 "No workspace yet",
                 "Open the overlay while a game is focused and Stickie will create a workspace for it.",
                 None,
@@ -205,7 +205,7 @@ impl FilesTab {
                 if self.entries.is_empty() {
                     if theme::empty_state(
                         ui,
-                        "▤",
+                        "F",
                         "This folder is empty",
                         "Create a folder to start sorting saves, builds or screenshots.",
                         Some("New folder"),

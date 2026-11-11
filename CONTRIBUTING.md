@@ -35,8 +35,8 @@ STICKIE_DATA_DIR=/tmp/stickie-dev cargo run --release
 
 - Keep commits scoped and explain the user-visible behavior.
 - Add tests for store/path logic. Windows-only Win32 code must be kept behind
-  `cfg(target_os = "windows")` and reviewed extra carefully because CI cannot
-  exercise every hook on Linux.
+  `cfg(target_os = "windows")` and reviewed extra carefully: CI compiles and
+  tests the Windows target, but it cannot exercise real game/DWM behavior.
 - Update README/docs when behavior, hotkeys, storage layout or limitations
   change.
 - Never add telemetry, network access, process injection, or background polling

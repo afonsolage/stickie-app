@@ -54,7 +54,7 @@ impl StickiesTab {
         if store.workspace().is_none() {
             theme::empty_state(
                 ui,
-                "▣",
+                "S",
                 "No stickies yet",
                 "Focus a game, open the overlay and Stickie will create a private sticky board for it.",
                 None,
@@ -108,7 +108,7 @@ impl StickiesTab {
         if self.stickies.is_empty() {
             let action = theme::empty_state(
                 ui,
-                "▣",
+                "S",
                 "A clean board",
                 "Quick thoughts, combos, codes, reminder for later. Stickies are for the things \
                  that do not deserve a full note yet.",

@@ -164,8 +164,8 @@ cargo run --example component_gallery
 cargo run --example component_gallery -- path/to/capture.png
 ```
 
-CI runs formatting, clippy and tests on Linux, and builds/tests the Windows
-target. See [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help.
+CI runs formatting, clippy, the full test suite and a release build on the
+Windows target. See [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help.
 
 ## Known limitations
 
