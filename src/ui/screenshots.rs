@@ -259,9 +259,27 @@ impl ScreenshotsTab {
 
     fn thumbnail(&mut self, ctx: &egui::Context, path: &Path) -> Option<&TextureHandle> {
         if !self.thumbnails.contains_key(path) {
-            let image = image::open(path).ok()?.to_rgba8();
-            let size = [image.width() as usize, image.height() as usize];
-            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+            let original = image::open(path).ok()?;
+            let [width, height] = [original.width() as usize, original.height() as usize];
+            // Thumbnails are small; cap them well below the GPU texture limit
+            // so a 4K/ultrawide capture never fails to appear in the gallery.
+            let max_side = ctx.input(|input| input.max_texture_side).clamp(1, 512);
+            let [thumb_width, thumb_height] =
+                super::screenshot_editor::fitted_texture_size([width, height], max_side);
+            let resized = if thumb_width == width && thumb_height == height {
+                original
+            } else {
+                original.resize_exact(
+                    thumb_width as u32,
+                    thumb_height as u32,
+                    image::imageops::FilterType::Triangle,
+                )
+            };
+            let image = resized.to_rgba8();
+            let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                [thumb_width, thumb_height],
+                image.as_raw(),
+            );
             let texture = ctx.load_texture(
                 format!("stickie-thumb-{}", path.display()),
                 color_image,

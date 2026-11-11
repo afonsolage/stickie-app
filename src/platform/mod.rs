@@ -34,12 +34,14 @@ mod stub;
 
 #[cfg(windows)]
 pub use self::windows::{
-    active_game, capture_game, open_in_file_manager, restore_game_focus, reveal_in_file_manager,
+    active_game, capture_game, configure_overlay_graphics, open_in_file_manager,
+    primary_monitor_size, restore_game_focus, reveal_in_file_manager,
 };
 
 #[cfg(not(windows))]
 pub use self::stub::{
-    active_game, capture_game, open_in_file_manager, restore_game_focus, reveal_in_file_manager,
+    active_game, capture_game, configure_overlay_graphics, open_in_file_manager,
+    primary_monitor_size, restore_game_focus, reveal_in_file_manager,
 };
 
 use std::path::Path;

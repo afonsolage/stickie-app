@@ -57,7 +57,7 @@ remember, without leaving the game or alt-tabbing into a browser.
 | Game workspaces | Foreground executable detected when the overlay opens; one workspace per game | MVP (Windows) |
 | Notepads | Markdown files with formatting toolbar, live preview, keyboard shortcuts and debounced autosave | MVP |
 | Sticky notes | Color-coded quick notes persisted per game | MVP |
-| Screenshot editor | Crop, pen, rectangle, arrow, color/width, undo, insert-in-note and save-as-annotated copy | MVP |
+| Screenshot editor | Crop, pen, rectangle, arrow, color/width, undo, insert-in-note and save-as-annotated copy; high-resolution preview textures are downscaled to the GPU budget | MVP |
 | Folders | Organize saves/files under each workspace; remembers the last opened folder | MVP |
 | Capture | Windows Graphics Capture of the focused game window, primary-display fallback | MVP (Windows) |
 | Settings | Hotkey, overlay dim, launch behavior, data folder | MVP |
@@ -122,7 +122,9 @@ the Windows MSVC target, cross-compiles through `cargo-xwin`, and launches
 `target/x86_64-pc-windows-msvc/debug/stickie.exe` through WSL interop. Dev runs
 start visible by default; use `STICKIE_SHOW_ON_START=0 just c` to test the hidden
 startup/hotkey flow, or `STICKIE_WIN_PROFILE=release just c` for an optimised
-build. Windows logs are forwarded to the WSL terminal via `WSLENV`.
+build. Windows logs are forwarded to the WSL terminal via `WSLENV`. The app
+selects the DX12 DirectComposition path internally for transparency; do not
+override `WGPU_BACKEND` unless you are debugging the renderer.
 
 If the automatic toolchain detection does not find one, point it explicitly:
 
@@ -202,10 +204,16 @@ Windows target. See [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help.
 
 ## Known limitations
 
-- **Exclusive fullscreen is not covered.** The overlay is composited by DWM over
-  windowed/borderless-windowed games. True exclusive-fullscreen support needs
-  swapchain injection, which this project intentionally avoids for now. Set
-  affected games to borderless-windowed mode.
+- **Exclusive fullscreen is not covered.** The overlay is a borderless window
+  covering the primary monitor, composited by DWM over windowed/borderless-windowed
+  games. True exclusive-fullscreen support needs swapchain injection, which this
+  project intentionally avoids for now. Set affected games to borderless-windowed
+  mode.
+- **Windows transparency uses DX12 DirectComposition.** Stickie defaults
+  `WGPU_BACKEND=dx12` and `WGPU_DX12_PRESENTATION_SYSTEM=visual` so the alpha
+  channel reaches DWM. Overriding `WGPU_BACKEND` (for example to Vulkan) can
+  make the overlay background opaque/black; run without that override for the
+  normal transparent overlay.
 - **Windows only for the real overlay.** Linux builds are for UI development;
   there is no X11/Wayland global hotkey or capture backend.
 - **Not an injected overlay.** Some games with aggressive anti-cheat may still

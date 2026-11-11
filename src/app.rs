@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use bevy::window::{
-    CompositeAlphaMode, MonitorSelection, PresentMode, PrimaryWindow, WindowLevel, WindowMode,
-    WindowPlugin, WindowResolution,
+    CompositeAlphaMode, PresentMode, PrimaryWindow, WindowLevel, WindowMode, WindowPlugin,
+    WindowPosition, WindowResolution,
 };
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
@@ -174,6 +174,8 @@ impl Plugin for StickiePlugin {
 /// broken data directory fails with a useful error instead of a panic inside a
 /// plugin.
 pub fn run() -> anyhow::Result<()> {
+    // Must happen before the render plugin picks a wgpu backend/presenter.
+    platform::configure_overlay_graphics();
     let store = Store::bootstrap()?;
     let start_visible = should_start_visible(&store);
 
@@ -235,14 +237,33 @@ fn should_start_visible(store: &Store) -> bool {
 }
 
 fn overlay_window(start_visible: bool) -> Window {
+    // A borderless *windowed* surface covering the primary monitor is used on
+    // Windows instead of `WindowMode::BorderlessFullscreen`. This keeps the
+    // window on the normal DWM/DirectComposition presentation path; the
+    // fullscreen path is what previously produced a black, opaque background.
+    #[cfg(target_os = "windows")]
+    let (mode, position, resolution, composite_alpha_mode) = {
+        let (width, height) = platform::primary_monitor_size().unwrap_or((1920, 1080));
+        (
+            WindowMode::Windowed,
+            WindowPosition::At(IVec2::ZERO),
+            WindowResolution::new(width, height),
+            CompositeAlphaMode::PreMultiplied,
+        )
+    };
+    #[cfg(not(target_os = "windows"))]
+    let (mode, position, resolution, composite_alpha_mode) = (
+        WindowMode::Windowed,
+        WindowPosition::Automatic,
+        WindowResolution::new(1440, 900),
+        CompositeAlphaMode::Auto,
+    );
+
     Window {
         title: format!("{APP_NAME} Overlay"),
-        mode: if cfg!(target_os = "windows") {
-            WindowMode::BorderlessFullscreen(MonitorSelection::Primary)
-        } else {
-            WindowMode::Windowed
-        },
-        resolution: WindowResolution::new(1440, 900),
+        mode,
+        position,
+        resolution,
         transparent: true,
         decorations: false,
         resizable: false,
@@ -250,7 +271,7 @@ fn overlay_window(start_visible: bool) -> Window {
         skip_taskbar: true,
         visible: start_visible,
         focused: start_visible,
-        composite_alpha_mode: CompositeAlphaMode::Auto,
+        composite_alpha_mode,
         present_mode: PresentMode::AutoVsync,
         ..default()
     }

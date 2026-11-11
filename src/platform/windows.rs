@@ -34,9 +34,10 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow,
-    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow,
-    IsWindowVisible, SMTO_ABORTIFHUNG, SMTO_BLOCK, SW_RESTORE, SendMessageTimeoutW,
-    SetForegroundWindow, ShowWindow, WM_GETTEXT, WM_GETTEXTLENGTH, WS_EX_TOOLWINDOW,
+    GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+    IsWindow, IsWindowVisible, SM_CXSCREEN, SM_CYSCREEN, SMTO_ABORTIFHUNG, SMTO_BLOCK, SW_RESTORE,
+    SendMessageTimeoutW, SetForegroundWindow, ShowWindow, WM_GETTEXT, WM_GETTEXTLENGTH,
+    WS_EX_TOOLWINDOW,
 };
 
 use super::{
@@ -146,6 +147,41 @@ pub fn active_game() -> Option<GameContext> {
         process_id: Some(process_id),
         window_handle: Some(window as isize),
     })
+}
+
+/// Selects the graphics configuration required for per-pixel transparency.
+///
+/// wgpu's Vulkan and default DXGI HWND swapchain paths report only the opaque
+/// composite alpha mode on Windows. DX12 DirectComposition visuals do support
+/// premultiplied alpha, which is what the transparent Bevy window needs. These
+/// environment variables are read by wgpu while Bevy creates its renderer, so
+/// they must be set before the Bevy app is built.
+pub fn configure_overlay_graphics() {
+    // SAFETY: called once at the start of `run`, before the Bevy app creates
+    // worker threads. Environment mutation is process-global in Rust 2024; no
+    // other thread exists yet that could read these values concurrently.
+    unsafe {
+        if std::env::var_os("WGPU_BACKEND").is_none() {
+            std::env::set_var("WGPU_BACKEND", "dx12");
+        }
+        if std::env::var_os("WGPU_DX12_PRESENTATION_SYSTEM").is_none() {
+            std::env::set_var("WGPU_DX12_PRESENTATION_SYSTEM", "visual");
+        }
+    }
+}
+
+/// Returns the primary monitor's physical size, in pixels.
+pub fn primary_monitor_size() -> Option<(u32, u32)> {
+    // SAFETY: `GetSystemMetrics` is a pure query for two indexed metrics and
+    // does not take any pointers.
+    let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    // SAFETY: see above.
+    let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    if width > 0 && height > 0 {
+        Some((width as u32, height as u32))
+    } else {
+        None
+    }
 }
 
 /// Restores the foreground focus to the game window captured in `game`.

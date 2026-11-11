@@ -2,11 +2,14 @@
 
 Stickie is a Windows-first, always-on-top overlay for note taking while gaming.
 It is deliberately a **desktop overlay**, not an injected graphics hook: a
-transparent borderless Bevy window is composited over the game by DWM. This
-works for Windows 10/11 games running in windowed or borderless-windowed mode.
-Covering exclusive-fullscreen games requires an injected graphics hook
-(D3D/Vulkan swapchain interception) and is explicitly out of scope for the
-first milestones. See [README](../README.md#known-limitations).
+transparent borderless Bevy window that covers the primary monitor is composited
+over the game by DWM. On Windows this uses a borderless *windowed* surface and
+the DX12 DirectComposition presentation path with premultiplied alpha; wgpu's
+Vulkan/DXGI-HWND surfaces report only opaque alpha. This works for Windows 10/11
+games running in windowed or borderless-windowed mode. Covering
+exclusive-fullscreen games requires an injected graphics hook (D3D/Vulkan
+swapchain interception) and is explicitly out of scope for the first milestones.
+See [README](../README.md#known-limitations).
 
 ## Runtime shape
 
@@ -58,7 +61,7 @@ Design rules that keep the game unaffected:
 | `src/ui/mod.rs` | Overlay shell composition: scrim, surface, navigation rail, status/toasts and painted icons. |
 | `src/ui/theme.rs` | Design tokens, typography, frames and reusable widgets. |
 | `src/ui/editor_md.rs` | Markdown editor/preview component and pure formatting helpers. |
-| `src/ui/screenshot_editor.rs` | Crop/pen/rect/arrow editor with annotated-PNG export. |
+| `src/ui/screenshot_editor.rs` | Crop/pen/rect/arrow editor with annotated-PNG export; preview textures fit egui's per-side GPU budget. |
 | `src/ui/notepad.rs` | Notes tab: file list + Markdown editor integration + debounced save. |
 | `src/ui/stickies.rs` | Sticky notes board. |
 | `src/ui/files.rs` | Workspace folder browser and folder creation. |

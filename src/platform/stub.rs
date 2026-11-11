@@ -34,6 +34,14 @@ pub fn active_game() -> Option<GameContext> {
 /// Windows-only: restores focus to the game window. No-op here.
 pub fn restore_game_focus(_game: &GameContext) {}
 
+/// Windows-only: selects the DirectComposition presentation path. No-op here.
+pub fn configure_overlay_graphics() {}
+
+/// Windows-only: returns the primary monitor size. Unavailable in the stub.
+pub fn primary_monitor_size() -> Option<(u32, u32)> {
+    None
+}
+
 /// Windows-only: captures the game or primary monitor. Always an error here.
 pub fn capture_game(_game: Option<&GameContext>) -> Result<RgbaImage> {
     Err(unsupported("screenshot capture"))

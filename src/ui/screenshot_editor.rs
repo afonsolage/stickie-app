@@ -363,17 +363,28 @@ impl ScreenshotEditor {
         // A missing file is reported as an error instead of a panic.
         let dynamic = image::open(&self.path)
             .with_context(|| format!("could not open {}", self.path.display()))?;
-        let width = dynamic.width() as usize;
-        let height = dynamic.height() as usize;
+        let [width, height] = [dynamic.width() as usize, dynamic.height() as usize];
         if width == 0 || height == 0 {
             bail!("image has zero size");
         }
-        let max_side = ctx.input(|input| input.max_texture_side);
-        if width > max_side || height > max_side {
-            bail!("image is {width}x{height}, larger than the GPU texture limit of {max_side}");
-        }
-        let rgba = dynamic.to_rgba8();
-        let color_image = egui::ColorImage::from_rgba_unmultiplied([width, height], rgba.as_raw());
+
+        // Screenshots are often 1440p/4K, while egui's texture budget can be as
+        // low as 2048 px per side. Keep the full-resolution PNG as the source of
+        // truth for crop/export, and only downscale the *display* texture.
+        let max_side = ctx.input(|input| input.max_texture_side).max(1);
+        let [tex_width, tex_height] = fitted_texture_size([width, height], max_side);
+        let display = if tex_width == width && tex_height == height {
+            dynamic
+        } else {
+            dynamic.resize_exact(
+                tex_width as u32,
+                tex_height as u32,
+                image::imageops::FilterType::Triangle,
+            )
+        };
+        let rgba = display.to_rgba8();
+        let color_image =
+            egui::ColorImage::from_rgba_unmultiplied([tex_width, tex_height], rgba.as_raw());
         let name = self
             .path
             .file_name()
@@ -381,6 +392,8 @@ impl ScreenshotEditor {
             .unwrap_or("screenshot")
             .to_owned();
         self.texture = Some(ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR));
+        // Annotation and crop coordinates remain normalized against the
+        // original image, and `save_annotated` reopens the untouched PNG.
         self.image_size = [width, height];
         self.error = None;
         Ok(())
@@ -1015,6 +1028,23 @@ fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 /// Output path for an annotated screenshot: `<stem>-annotated.png` next to the
 /// original. The original file is never touched.
+/// Fit an image inside egui's per-side texture budget while preserving aspect
+/// ratio. The source file stays at full resolution; only the interactive
+/// preview texture is scaled.
+pub(crate) fn fitted_texture_size([width, height]: [usize; 2], max_side: usize) -> [usize; 2] {
+    if width == 0 || height == 0 {
+        return [1, 1];
+    }
+    let longest = width.max(height);
+    if longest <= max_side {
+        return [width, height];
+    }
+    let scale = max_side as f64 / longest as f64;
+    let fitted_width = ((width as f64 * scale).round() as usize).clamp(1, max_side);
+    let fitted_height = ((height as f64 * scale).round() as usize).clamp(1, max_side);
+    [fitted_width, fitted_height]
+}
+
 pub fn annotated_path(path: &Path) -> PathBuf {
     let stem = path
         .file_stem()
@@ -1268,6 +1298,45 @@ mod tests {
         assert!(editor.save_annotated().is_err());
         editor.close();
         assert!(!editor.is_open());
+    }
+
+    #[test]
+    fn fitted_texture_size_respects_limit_and_aspect_ratio() {
+        assert_eq!(fitted_texture_size([1920, 1080], 2048), [1920, 1080]);
+        assert_eq!(fitted_texture_size([2560, 1032], 2048), [2048, 826]);
+        assert_eq!(fitted_texture_size([1032, 2560], 2048), [826, 2048]);
+        assert_eq!(fitted_texture_size([4000, 4000], 2048), [2048, 2048]);
+        assert_eq!(fitted_texture_size([0, 0], 2048), [1, 1]);
+    }
+
+    #[test]
+    fn large_screenshots_downscale_for_the_editor_texture() {
+        let ctx = egui::Context::default();
+        let max_side = ctx.input(|input| input.max_texture_side);
+        let dir = std::env::temp_dir().join(format!(
+            "stickie-large-screenshot-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("large.png");
+        let source = RgbaImage::from_pixel(2560, 256, Rgba([10, 20, 30, 255]));
+        source.save(&path).expect("save large image");
+
+        let editor = ScreenshotEditor::open(&ctx, path).expect("large screenshot should open");
+        assert_eq!(editor.image_size(), [2560, 256]);
+        let texture = editor.texture.as_ref().expect("texture");
+        let [width, height] = texture.size();
+        assert!(
+            width <= max_side && height <= max_side,
+            "texture {width}x{height}"
+        );
+        assert_eq!(width, max_side);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
