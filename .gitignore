@@ -1,0 +1,7 @@
+/target
+/.target
+/.cargo-home
+/.dev
+*.log
+.DS_Store
+Thumbs.db
