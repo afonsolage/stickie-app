@@ -417,6 +417,9 @@ fn handle_commands(
     for command in commands.read() {
         match command {
             AppCommand::ToggleOverlay => {
+                if !matches!(capture.phase, CapturePhase::Idle) {
+                    continue;
+                }
                 if overlay.visible {
                     hide_overlay(
                         &mut ui,
@@ -438,6 +441,9 @@ fn handle_commands(
                 }
             }
             AppCommand::HideOverlay => {
+                if !matches!(capture.phase, CapturePhase::Idle) {
+                    continue;
+                }
                 if overlay.visible {
                     hide_overlay(
                         &mut ui,
@@ -679,7 +685,9 @@ fn finish_capture(
     focus.started_at = Some(Instant::now());
     focus.not_before = Some(Instant::now() + Duration::from_millis(50));
     window.visible = true;
-    *winit_settings = idle_winit_settings();
+    // Keep updates flowing for the delayed focus attempt; `drive_focus` puts
+    // the app back into the idle profile once focus is settled.
+    winit_settings.unfocused_mode = UpdateMode::reactive_low_power(Duration::from_millis(16));
 }
 
 fn draw_overlay(
@@ -783,6 +791,9 @@ fn apply_hotkey_rebind(
             }
             Err(error) => {
                 let message = format!("Could not register hotkey: {error}");
+                // The previous binding is still active (the platform layer
+                // rolls back); keep the status bar honest about that.
+                info.active = handle.spec().to_string();
                 info.warning = Some(message.clone());
                 ui.push_error(message);
             }

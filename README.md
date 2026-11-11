@@ -181,7 +181,12 @@ target. See [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help.
 - **The overlay follows the primary monitor at startup.** Multi-monitor games
   will get proper positioning in a follow-up.
 - **Screenshot capture is Windows-only in practice.** The editor and storage are
-  cross-platform; on Linux the capture button is hidden.
+  cross-platform; on Linux the capture button is hidden. Some games block
+  Windows Graphics Capture (protected content); the app falls back to a display
+  capture.
+- **Elevated/protected games can hide their identity.** If Windows refuses the
+  foreground-process query, Stickie falls back to the `Desktop` workspace rather
+  than guessing. Running both at the same integrity level fixes it.
 - **Windows 11 validation is pending.** The Windows-specific code is type-checked
   in CI and was cross-checked against the `x86_64-pc-windows-msvc` target, but
   this scaffold has not yet been exercised on a physical Windows 11 game setup.
