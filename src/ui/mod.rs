@@ -4,6 +4,7 @@
 //! to the [`Store`] directly; anything that needs the Bevy window, platform or
 //! event loop is returned as a [`UiAction`] for `app.rs` to execute.
 
+mod capture_overlay;
 mod editor_md;
 mod files;
 mod notepad;
@@ -21,6 +22,7 @@ use bevy_egui::egui::{self, Align, Layout, RichText, UiBuilder};
 use egui::{Color32, CornerRadius, Margin, Rect, Stroke, Vec2, pos2, vec2};
 
 use crate::store::Store;
+use capture_overlay::{CaptureOutcome, CaptureOverlay};
 use theme::ToastKind;
 
 pub use screenshot_editor::{ScreenshotEditor, ScreenshotEditorEvent};
@@ -108,6 +110,7 @@ pub struct OverlayUi {
     files: files::FilesTab,
     screenshots: screenshots::ScreenshotsTab,
     settings: settings::SettingsTab,
+    capture: CaptureOverlay,
     actions: Vec<UiAction>,
     notice: Option<Notice>,
     theme_applied: bool,
@@ -130,6 +133,7 @@ impl OverlayUi {
             files: files::FilesTab::new(),
             screenshots: screenshots::ScreenshotsTab::new(),
             settings: settings::SettingsTab::new(),
+            capture: CaptureOverlay::new(),
             actions: Vec::new(),
             notice: None,
             theme_applied: false,
@@ -177,6 +181,17 @@ impl OverlayUi {
         });
     }
 
+    /// Starts the full-screen crop/annotate capture mode with a fresh screen
+    /// capture. The image is kept in memory until the user saves it.
+    pub fn begin_capture(&mut self, image: image::RgbaImage) {
+        self.capture.begin(image);
+    }
+
+    /// Whether the crop/annotate capture mode currently owns the overlay.
+    pub fn is_capturing(&self) -> bool {
+        self.capture.is_active()
+    }
+
     /// Requests that the screenshot editor open this capture on the next frame.
     pub fn open_screenshot(&mut self, path: PathBuf) {
         self.active_tab = Tab::Screenshots;
@@ -210,6 +225,14 @@ impl OverlayUi {
             self.theme_applied = true;
         }
 
+        if self.capture.is_active() {
+            if let Some(outcome) = self.capture.show(viewport) {
+                self.handle_capture_outcome(outcome, store);
+            }
+            self.draw_notice(&ctx);
+            return;
+        }
+
         self.handle_global_shortcuts(&ctx, view);
 
         let screen = ctx.content_rect();
@@ -228,6 +251,52 @@ impl OverlayUi {
             });
 
         self.draw_notice(&ctx);
+    }
+
+    fn handle_capture_outcome(&mut self, outcome: CaptureOutcome, store: &mut Store) {
+        let image = match outcome {
+            CaptureOutcome::Cancel => {
+                self.capture.finish();
+                return;
+            }
+            CaptureOutcome::Save(image) => {
+                match store.save_screenshot(&image) {
+                    Ok(path) => {
+                        self.screenshots.reload(store);
+                        self.active_tab = Tab::Screenshots;
+                        self.capture.finish();
+                        let name = path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path.display().to_string());
+                        self.push_success(format!("Screenshot saved as {name}"));
+                    }
+                    Err(error) => self
+                        .capture
+                        .set_error(format!("Could not save screenshot: {error:#}")),
+                }
+                return;
+            }
+            CaptureOutcome::Insert(image) => image,
+        };
+
+        match store.save_screenshot(&image) {
+            Ok(path) => {
+                let inserted = self.notes.attach_screenshot(&path, store);
+                self.screenshots.reload(store);
+                self.capture.finish();
+                if inserted {
+                    self.active_tab = Tab::Notes;
+                    self.push_success("Screenshot inserted into the note.");
+                } else {
+                    self.active_tab = Tab::Screenshots;
+                    self.push_error("Screenshot saved, but no note was open to insert it into.");
+                }
+            }
+            Err(error) => self
+                .capture
+                .set_error(format!("Could not save screenshot: {error:#}")),
+        }
     }
 
     fn handle_global_shortcuts(&mut self, ctx: &egui::Context, view: &UiView) {
@@ -403,7 +472,7 @@ impl OverlayUi {
                                 .corner_radius(theme::radius(theme::RADIUS_SM))
                                 .min_size(vec2(0.0, theme::CONTROL_HEIGHT)),
                             )
-                            .on_hover_text("Capture the game window")
+                            .on_hover_text("Capture a screen region")
                             .clicked()
                         {
                             self.actions.push(UiAction::CaptureScreenshot);
@@ -502,7 +571,7 @@ fn body(ui: &mut egui::Ui, rect: Rect, overlay: &mut OverlayUi, store: &mut Stor
             theme::section_label(ui, "Quick");
             if view.capture_supported
                 && nav_item(ui, NavIcon::Capture, "Capture", false)
-                    .on_hover_text("Capture the game window for notes")
+                    .on_hover_text("Capture a screen region for notes")
                     .clicked()
             {
                 overlay.actions.push(UiAction::CaptureScreenshot);

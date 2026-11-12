@@ -42,6 +42,11 @@ pub fn primary_monitor_size() -> Option<(u32, u32)> {
     None
 }
 
+/// Windows-only: captures the primary display. Always an error here.
+pub fn capture_screen() -> Result<RgbaImage> {
+    capture_game(None)
+}
+
 /// Windows-only: captures the game or primary monitor. Always an error here.
 pub fn capture_game(_game: Option<&GameContext>) -> Result<RgbaImage> {
     Err(unsupported("screenshot capture"))

@@ -130,7 +130,6 @@ enum CapturePhase {
     Idle,
     HideThenCapture {
         started_at: Instant,
-        game: Option<GameContext>,
     },
     Waiting(Mutex<Receiver<anyhow::Result<image::RgbaImage>>>),
 }
@@ -438,7 +437,7 @@ fn handle_commands(
     for command in commands.read() {
         match command {
             AppCommand::ToggleOverlay => {
-                if !matches!(capture.phase, CapturePhase::Idle) {
+                if !matches!(capture.phase, CapturePhase::Idle) || ui.is_capturing() {
                     continue;
                 }
                 if overlay.visible {
@@ -462,7 +461,7 @@ fn handle_commands(
                 }
             }
             AppCommand::HideOverlay => {
-                if !matches!(capture.phase, CapturePhase::Idle) {
+                if !matches!(capture.phase, CapturePhase::Idle) || ui.is_capturing() {
                     continue;
                 }
                 if overlay.visible {
@@ -484,7 +483,10 @@ fn handle_commands(
                 exit.write(AppExit::Success);
             }
             AppCommand::CaptureScreenshot => {
-                if matches!(capture.phase, CapturePhase::Idle) && overlay.visible {
+                if matches!(capture.phase, CapturePhase::Idle)
+                    && !ui.is_capturing()
+                    && overlay.visible
+                {
                     ui.flush(store.get_mut());
                     overlay.visible = false;
                     focus.active = false;
@@ -493,7 +495,6 @@ fn handle_commands(
                         UpdateMode::reactive_low_power(Duration::from_millis(16));
                     capture.phase = CapturePhase::HideThenCapture {
                         started_at: Instant::now(),
-                        game: overlay.game.clone(),
                     };
                 }
             }
@@ -607,7 +608,6 @@ fn drive_focus(
 
 fn drive_capture(
     mut capture: ResMut<CaptureState>,
-    store: Res<StoreResource>,
     mut ui: ResMut<OverlayUi>,
     mut overlay: ResMut<OverlayState>,
     mut focus: ResMut<FocusRequest>,
@@ -620,16 +620,18 @@ fn drive_capture(
     let phase = std::mem::take(&mut capture.phase);
     match phase {
         CapturePhase::Idle => {}
-        CapturePhase::HideThenCapture { started_at, game } => {
+        CapturePhase::HideThenCapture { started_at } => {
             if started_at.elapsed() < Duration::from_millis(180) {
-                capture.phase = CapturePhase::HideThenCapture { started_at, game };
+                capture.phase = CapturePhase::HideThenCapture { started_at };
                 return;
             }
             let (sender, receiver) = mpsc::channel();
             match std::thread::Builder::new()
                 .name("stickie-capture".to_string())
                 .spawn(move || {
-                    let result = platform::capture_game(game.as_ref());
+                    // Capture the whole primary display; the capture overlay
+                    // lets the user select the region to keep.
+                    let result = platform::capture_screen();
                     let _ = sender.send(result);
                 }) {
                 Ok(_) => capture.phase = CapturePhase::Waiting(Mutex::new(receiver)),
@@ -671,10 +673,9 @@ fn drive_capture(
             };
             drop(guard);
             if let Some(result) = result {
-                match result.and_then(|image| store.save_screenshot(&image)) {
-                    Ok(path) => {
-                        ui.open_screenshot(path);
-                        ui.push_success("Screenshot captured. Crop or annotate it, then save.");
+                match result {
+                    Ok(image) => {
+                        ui.begin_capture(image);
                     }
                     Err(error) => {
                         ui.push_error(format!("Screenshot failed: {error}"));

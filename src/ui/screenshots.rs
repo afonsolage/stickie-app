@@ -1,5 +1,8 @@
-//! Screenshots tab: capture the game, crop and annotate the result, then keep
-//! it in the game workspace (or drop it into the open note).
+//! Screenshots tab: browse saved captures and edit them.
+//!
+//! New captures use the full-screen [`super::capture_overlay`] flow: freeze the
+//! screen, drag a region, annotate it, then save it to the workspace or insert
+//! it into the open note.
 use bevy_egui::egui;
 
 use std::collections::HashMap;
@@ -74,15 +77,17 @@ impl ScreenshotsTab {
                         .color(theme::TEXT_PRIMARY),
                 );
                 ui.label(
-                    RichText::new("Crop, draw, save. Game captures stay inside this workspace.")
-                        .font(theme::font_small())
-                        .color(theme::TEXT_FAINT),
+                    RichText::new(
+                        "Select a region, annotate, save. Captures stay in this workspace.",
+                    )
+                    .font(theme::font_small())
+                    .color(theme::TEXT_FAINT),
                 );
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !capture_supported {
                     theme::pill(ui, "Windows only", theme::TEXT_FAINT);
-                } else if theme::primary_button(ui, "Capture").clicked() {
+                } else if theme::primary_button(ui, "Capture area").clicked() {
                     actions.push(UiAction::CaptureScreenshot);
                 }
                 if self.editor.is_some() {
@@ -136,7 +141,7 @@ impl ScreenshotsTab {
                 "C",
                 "No screenshots yet",
                 if capture_supported {
-                    "Capture the game window, then crop and draw on the result before saving it \
+                    "Capture the screen, drag to select a region, then annotate and save it \
                      to this workspace."
                 } else {
                     "Screenshot capture is available on Windows. The gallery will still show \

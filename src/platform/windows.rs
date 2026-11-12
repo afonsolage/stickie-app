@@ -220,6 +220,14 @@ pub fn restore_game_focus(game: &GameContext) {
     }
 }
 
+/// Captures the primary display for the interactive capture overlay.
+///
+/// The app hides its overlay before calling this, so the frozen image contains
+/// the game/desktop rather than Stickie itself.
+pub fn capture_screen() -> Result<RgbaImage> {
+    capture_game(None)
+}
+
 /// Captures a screenshot of the game window, falling back to the primary
 /// monitor when the game window cannot be captured.
 ///

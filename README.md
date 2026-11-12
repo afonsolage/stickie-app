@@ -15,7 +15,7 @@ Built with [Bevy](https://bevy.org) for the window/render loop and
 target; Linux builds exist so the UI can be developed without a Windows machine.
 
 **Project status: early scaffold.** The architecture, storage layer, UI shell,
-Markdown editor, sticky board, screenshot editor and Windows platform layer are
+Markdown editor, sticky board, Lightshot-style capture overlay and Windows platform layer are
 wired together and covered by tests. Windows 11 validation and signed releases
 are the next milestone; expect rough edges and breaking changes.
 
@@ -27,9 +27,13 @@ backdrop. The Windows build adds global-hotkey and capture affordances; see
 
 ### A quick look
 
-| Stickies | Screenshot editor |
+| Stickies | Saved-screenshot editor |
 | --- | --- |
 | ![Sticky notes tab](docs/assets/overlay-stickies.png) | ![Screenshot crop and annotate editor](docs/assets/overlay-screenshot-editor.png) |
+
+| Capture: drag a region | Capture: annotate and save |
+| --- | --- |
+| ![Full-screen capture overlay with a region-selection hint](docs/assets/overlay-capture-select.png) | ![Selected region with pen/rectangle/arrow toolbar](docs/assets/overlay-capture-annotate.png) |
 
 ## Why another overlay?
 
@@ -57,9 +61,10 @@ remember, without leaving the game or alt-tabbing into a browser.
 | Game workspaces | Foreground executable detected when the overlay opens; one workspace per game | MVP (Windows) |
 | Notepads | Markdown files with formatting toolbar, live preview, keyboard shortcuts and debounced autosave | MVP |
 | Sticky notes | Color-coded quick notes persisted per game | MVP |
-| Screenshot editor | Crop, pen, rectangle, arrow, color/width, undo, insert-in-note and save-as-annotated copy; high-resolution preview textures are downscaled to the GPU budget | MVP |
+| Capture overlay | Freeze the primary display, drag-select a region, then pen/rectangle/arrow annotate and save or insert into the note | MVP (Windows) |
+| Screenshot editor | Open saved captures to re-crop, draw (pen/rectangle/arrow), undo or save an annotated copy; high-resolution preview textures are downscaled to the GPU budget | MVP |
 | Folders | Organize saves/files under each workspace; remembers the last opened folder | MVP |
-| Capture | Windows Graphics Capture of the focused game window, primary-display fallback | MVP (Windows) |
+| Capture backend | Windows Graphics Capture of the primary display through a worker thread | MVP (Windows) |
 | Settings | Hotkey, overlay dim, launch behavior, data folder | MVP |
 | Multi-monitor positioning | Overlay opens on the game’s monitor | Planned |
 | Exclusive-fullscreen overlay | D3D/Vulkan swapchain hooking | Out of scope for now |
@@ -239,13 +244,14 @@ Windows target. See [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help.
 - [x] Repository, architecture and UX benchmark
 - [x] Minimal Bevy shell + transparent Windows overlay scaffolding
 - [x] Config, per-game workspaces, Markdown notes, stickies, folders
-- [x] Screenshot editor (crop, pen, rectangle, arrow) and capture worker
+- [x] Lightshot-style full-screen capture overlay (select, pen/rectangle/arrow, save, insert note)
+- [x] Screenshot editor for saved captures and capture worker
 - [ ] Windows 11 manual validation and signed release builds
 - [ ] Multi-monitor overlay placement and per-game display memory
 - [ ] Rebindable hotkey capture UI and conflict diagnostics
 - [ ] Steam app-id mapping, recent-game switcher and workspace renaming
 - [ ] Pinned stickies that remain over the game, independent of the overlay
-- [ ] Full-screen screenshot mode with click-through capture
+- [ ] Clipboard copy, text/highlighter tools and multi-monitor capture
 - [ ] Auto-update or portable build (opt-in, no telemetry)
 
 ## License

@@ -119,13 +119,13 @@ impl CropRect {
 /// One annotation, stored in normalized image coordinates so it scales with the
 /// displayed image and can be rasterized at full source resolution on save.
 #[derive(Clone, Debug, PartialEq)]
-struct Annotation {
-    kind: Tool,
-    color: Color32,
+pub(crate) struct Annotation {
+    pub(crate) kind: Tool,
+    pub(crate) color: Color32,
     /// Stroke width normalized against the displayed image width.
-    width: f32,
+    pub(crate) width: f32,
     /// Points in normalized image space.
-    points: Vec<[f32; 2]>,
+    pub(crate) points: Vec<[f32; 2]>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -135,7 +135,7 @@ struct Snapshot {
 }
 
 /// Colors offered in the screenshot editor toolbar.
-const SWATCHES: [Color32; 6] = [
+pub(crate) const SWATCHES: [Color32; 6] = [
     Color32::from_rgb(0xF5, 0xF7, 0xFA), // white
     Color32::from_rgb(0xF2, 0xB4, 0x41), // amber
     Color32::from_rgb(0xE5, 0x48, 0x4D), // red
@@ -814,7 +814,7 @@ impl ScreenshotEditor {
 // Painting helpers
 // ---------------------------------------------------------------------------
 
-fn paint_tool_icon(painter: &egui::Painter, rect: Rect, tool: Tool, color: Color32) {
+pub(crate) fn paint_tool_icon(painter: &egui::Painter, rect: Rect, tool: Tool, color: Color32) {
     let stroke = Stroke::new(1.6, color);
     let center = rect.center();
     match tool {
@@ -847,7 +847,7 @@ fn paint_tool_icon(painter: &egui::Painter, rect: Rect, tool: Tool, color: Color
     }
 }
 
-fn tool_icon_button(ui: &mut Ui, tool: Tool, selected: bool) -> Response {
+pub(crate) fn tool_icon_button(ui: &mut Ui, tool: Tool, selected: bool) -> Response {
     let (rect, response) =
         ui.allocate_exact_size(Vec2::splat(theme::TOOL_BUTTON_SIZE), Sense::click());
     let painter = ui.painter().clone();
@@ -883,7 +883,7 @@ fn tool_icon_button(ui: &mut Ui, tool: Tool, selected: bool) -> Response {
     response.on_hover_text(tool.tooltip())
 }
 
-fn color_swatch(ui: &mut Ui, color: Color32, selected: bool) -> Response {
+pub(crate) fn color_swatch(ui: &mut Ui, color: Color32, selected: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::click());
     let painter = ui.painter().clone();
     let center = rect.center();
@@ -899,7 +899,12 @@ fn color_swatch(ui: &mut Ui, color: Color32, selected: bool) -> Response {
     response
 }
 
-fn paint_crop_overlay(painter: &egui::Painter, crop: CropRect, image_rect: Rect, committed: bool) {
+pub(crate) fn paint_crop_overlay(
+    painter: &egui::Painter,
+    crop: CropRect,
+    image_rect: Rect,
+    committed: bool,
+) {
     let rect = crop_to_screen(crop, image_rect);
     let dim = Color32::from_black_alpha(if committed { 150 } else { 120 });
     painter.rect_filled(
@@ -959,7 +964,7 @@ fn paint_crop_overlay(painter: &egui::Painter, crop: CropRect, image_rect: Rect,
     }
 }
 
-fn paint_annotation(painter: &egui::Painter, annotation: &Annotation, image_rect: Rect) {
+pub(crate) fn paint_annotation(painter: &egui::Painter, annotation: &Annotation, image_rect: Rect) {
     let points: Vec<egui::Pos2> = annotation
         .points
         .iter()
@@ -993,14 +998,14 @@ fn paint_annotation(painter: &egui::Painter, annotation: &Annotation, image_rect
     }
 }
 
-fn crop_to_screen(crop: CropRect, image_rect: Rect) -> Rect {
+pub(crate) fn crop_to_screen(crop: CropRect, image_rect: Rect) -> Rect {
     Rect::from_min_max(
         denormalize(crop.min, image_rect),
         denormalize(crop.max, image_rect),
     )
 }
 
-fn normalize(position: egui::Pos2, image_rect: Rect) -> [f32; 2] {
+pub(crate) fn normalize(position: egui::Pos2, image_rect: Rect) -> [f32; 2] {
     let width = image_rect.width().max(0.0001);
     let height = image_rect.height().max(0.0001);
     [
@@ -1009,14 +1014,14 @@ fn normalize(position: egui::Pos2, image_rect: Rect) -> [f32; 2] {
     ]
 }
 
-fn denormalize(point: [f32; 2], image_rect: Rect) -> egui::Pos2 {
+pub(crate) fn denormalize(point: [f32; 2], image_rect: Rect) -> egui::Pos2 {
     pos2(
         image_rect.min.x + point[0] * image_rect.width(),
         image_rect.min.y + point[1] * image_rect.height(),
     )
 }
 
-fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
+pub(crate) fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
     let dx = b[0] - a[0];
     let dy = b[1] - a[1];
     (dx * dx + dy * dy).sqrt()
@@ -1026,8 +1031,6 @@ fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
 // Rasterization (save path)
 // ---------------------------------------------------------------------------
 
-/// Output path for an annotated screenshot: `<stem>-annotated.png` next to the
-/// original. The original file is never touched.
 /// Fit an image inside egui's per-side texture budget while preserving aspect
 /// ratio. The source file stays at full resolution; only the interactive
 /// preview texture is scaled.
@@ -1045,6 +1048,8 @@ pub(crate) fn fitted_texture_size([width, height]: [usize; 2], max_side: usize) 
     [fitted_width, fitted_height]
 }
 
+/// Output path for an annotated screenshot: `<stem>-annotated.png` next to the
+/// original. The original file is never touched.
 pub fn annotated_path(path: &Path) -> PathBuf {
     let stem = path
         .file_stem()
@@ -1054,7 +1059,7 @@ pub fn annotated_path(path: &Path) -> PathBuf {
 }
 
 /// Crop rectangle to integer source-image pixel bounds, clamped to the image.
-fn crop_pixels(crop: CropRect, width: u32, height: u32) -> (u32, u32, u32, u32) {
+pub(crate) fn crop_pixels(crop: CropRect, width: u32, height: u32) -> (u32, u32, u32, u32) {
     if width == 0 || height == 0 {
         return (0, 0, 1, 1);
     }
@@ -1075,7 +1080,7 @@ fn crop_pixels(crop: CropRect, width: u32, height: u32) -> (u32, u32, u32, u32) 
     (x0, y0, x1 - x0, y1 - y0)
 }
 
-fn draw_annotation(image: &mut RgbaImage, annotation: &Annotation) {
+pub(crate) fn draw_annotation(image: &mut RgbaImage, annotation: &Annotation) {
     let (width, height) = image.dimensions();
     if width == 0 || height == 0 {
         return;

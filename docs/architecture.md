@@ -65,7 +65,8 @@ Design rules that keep the game unaffected:
 | `src/ui/notepad.rs` | Notes tab: file list + Markdown editor integration + debounced save. |
 | `src/ui/stickies.rs` | Sticky notes board. |
 | `src/ui/files.rs` | Workspace folder browser and folder creation. |
-| `src/ui/screenshots.rs` | Screenshot library and editor integration. |
+| `src/ui/capture_overlay.rs` | Full-screen freeze-frame capture overlay: region select, annotate, crop/export. |
+| `src/ui/screenshots.rs` | Saved screenshot library and editor integration. |
 | `src/ui/settings.rs` | Settings tab (hotkey, opacity, start-hidden, data location). |
 
 The important boundary is **platform / store / UI / app controller**. The
@@ -116,6 +117,7 @@ pub struct GameContext {
 pub fn overlay_supported() -> bool;
 pub fn active_game() -> Option<GameContext>;          // foreground probe
 pub fn restore_game_focus(game: &GameContext);
+pub fn capture_screen() -> Result<image::RgbaImage>;  // primary display
 pub fn capture_game(game: Option<&GameContext>) -> Result<image::RgbaImage>;
 pub fn open_in_file_manager(path: &Path) -> Result<()>;
 ```
@@ -155,7 +157,9 @@ store.config / store.save_config;
 ```text
 Hidden --hotkey--> Probing --> LoadingWorkspace --> Visible
 Visible --hotkey/Esc--> Hiding --> Hidden
-Visible --capture--> Capturing --> Visible (editor opened)
+Visible --capture--> Hidden --capture screen--> CaptureOverlay (select + annotate)
+CaptureOverlay --save/insert--> Visible
+CaptureOverlay --Esc/cancel--> Visible
 ```
 
 - Show: probe game, open workspace, refresh file tree, request focus, show.
@@ -166,8 +170,15 @@ Visible --capture--> Capturing --> Visible (editor opened)
 - Escape hides the overlay (and autosaves the open note). The overlay also closes
   if the user presses the global hotkey again.
 - Screenshot capture hides the overlay, waits ~180 ms for composition to settle,
-  captures on a worker thread, then reopens the editor on the same frame cycle.
-  The overlay remains hidden while the raw PNG is written to the workspace.
+  and captures the primary display on a worker thread.
+- The captured frame is kept in memory and shown in a full-screen capture mode:
+  the normal Stickie shell is skipped, the frozen frame is dimmed, and a drag
+  selects a region. After selection a floating toolbar offers pen, rectangle and
+  arrow annotations plus save, insert-in-note and cancel.
+- Only the final cropped and annotated PNG is written to the workspace. Cancel
+  discards the in-memory frame; no full-screen raw file is created.
+- While the capture overlay is active, the global hotkey cannot hide Stickie;
+  Esc cancels the capture and returns to the shell.
 
 ## Performance targets
 
@@ -181,9 +192,9 @@ Visible --capture--> Capturing --> Visible (editor opened)
 
 Release builds use `lto = "thin"`, `codegen-units = 1`, `panic = "abort"`, and
 the minimal Bevy feature set in `Cargo.toml`. Screenshot capture uses Windows
-Graphics Capture, and capture runs on a dedicated worker thread. Annotation is
-rasterized synchronously when the user saves (a candidate for a future worker
-task on very large screenshots). The targets above are goals; the first Windows
+Graphics Capture, and capture runs on a dedicated worker thread. Capture overlays keep annotations in
+normalized coordinates and rasterize the final cropped image synchronously when
+the user saves (a candidate for a future worker task on very large screenshots). The targets above are goals; the first Windows
 performance pass is still pending.
 
 ## Security / privacy
