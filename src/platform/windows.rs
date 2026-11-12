@@ -149,6 +149,23 @@ pub fn active_game() -> Option<GameContext> {
     })
 }
 
+/// Returns whether the current foreground window belongs to Stickie itself.
+///
+/// Pinned screen-sticky windows are owned by this process. When one of them is
+/// focused, the regular game probe deliberately skips it; the overlay can then
+/// keep the workspace it was showing instead of switching to the Desktop.
+pub fn foreground_is_own_process() -> bool {
+    // SAFETY: GetForegroundWindow takes no arguments and may return null.
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_null() {
+        return false;
+    }
+    let mut process_id = 0u32;
+    // SAFETY: window is non-null and process_id is a valid out-pointer.
+    let thread_id = unsafe { GetWindowThreadProcessId(window, &raw mut process_id) };
+    thread_id != 0 && process_id == std::process::id()
+}
+
 /// Selects the graphics configuration required for per-pixel transparency.
 ///
 /// wgpu's Vulkan and default DXGI HWND swapchain paths report only the opaque

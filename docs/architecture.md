@@ -52,6 +52,7 @@ Design rules that keep the game unaffected:
 | `src/main.rs` | Thin binary entry point and fatal-error reporting. |
 | `src/lib.rs` | Public crate surface and four-layer module boundary. |
 | `src/app.rs` | Bevy app/plugins, overlay controller state machine, capture lifecycle, hotkey wakeups. |
+| `src/app/screen_stickies.rs` | Pinned sticky windows: dynamic egui schedules, visibility, drag persistence. |
 | `src/platform/mod.rs` | Cross-platform facade and pure helpers: game probe ids, shell-window filtering, display names, hotkey labels. |
 | `src/platform/windows.rs` | Win32 foreground-process probe, Graphics Capture, focus restore and Explorer integration. |
 | `src/platform/hotkey.rs` | Global hotkey registration, fallback/rebind and the non-Windows stub. |
@@ -66,6 +67,7 @@ Design rules that keep the game unaffected:
 | `src/ui/stickies.rs` | Sticky notes board. |
 | `src/ui/files.rs` | Workspace folder browser and folder creation. |
 | `src/ui/capture_overlay.rs` | Full-screen freeze-frame capture overlay: region select, annotate, crop/export. |
+| `src/ui/screen_sticky.rs` | Minimal pinned sticky card + hover-only Edit/Unpin actions. |
 | `src/ui/screenshots.rs` | Saved screenshot library and editor integration. |
 | `src/ui/settings.rs` | Settings tab (hotkey, opacity, start-hidden, data location). |
 
@@ -180,6 +182,27 @@ CaptureOverlay --Esc/cancel--> Visible
 - While the capture overlay is active, the global hotkey cannot hide Stickie;
   Esc cancels the capture and returns to the shell.
 
+## Screen stickies
+
+Stickies can be pinned to the desktop/game as separate borderless Bevy windows.
+Each pin gets:
+
+- its own transparent, always-on-top `Window`, camera and egui context;
+- a unique dynamically interned egui schedule (one context per schedule is a
+  bevy_egui invariant);
+- a persisted `PinnedSticky { sticky_id, x, y, width, height }` in the
+  workspace manifest, stored in physical screen pixels;
+- a minimal egui card that fills the window. The drag strip and Edit/Unpin
+  controls only appear on pointer hover; the rest of the card is the note.
+
+Pinned windows are hidden while the main overlay is visible and reappear when
+it hides, so they sit over the game without covering Stickie's panel or the
+capture overlay. Native window moves are collected from `WindowMoved` and
+debounced before writing the workspace manifest. A focused screen-sticky window
+belongs to Stickie's own process; opening the overlay from one preserves the
+last game workspace instead of probing Stickie as the foreground app. The pin
+cap is 12 per workspace.
+
 ## Performance targets
 
 | Metric | Target |
@@ -192,9 +215,12 @@ CaptureOverlay --Esc/cancel--> Visible
 
 Release builds use `lto = "thin"`, `codegen-units = 1`, `panic = "abort"`, and
 the minimal Bevy feature set in `Cargo.toml`. Screenshot capture uses Windows
-Graphics Capture, and capture runs on a dedicated worker thread. Capture overlays keep annotations in
-normalized coordinates and rasterize the final cropped image synchronously when
-the user saves (a candidate for a future worker task on very large screenshots). The targets above are goals; the first Windows
+Graphics Capture, and capture runs on a dedicated worker thread. Capture
+overlays keep annotations in normalized coordinates and rasterize the final
+cropped image synchronously when the user saves (a candidate for a future
+worker task on very large screenshots). Screen-sticky cards are ordinary Bevy
+windows, so while pinned notes are visible the app only wakes for real input;
+there are no polling timers. The targets above are goals; the first Windows
 performance pass is still pending.
 
 ## Security / privacy

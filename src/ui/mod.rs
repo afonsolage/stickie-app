@@ -8,6 +8,7 @@ mod capture_overlay;
 mod editor_md;
 mod files;
 mod notepad;
+pub(crate) mod screen_sticky;
 mod screenshot_editor;
 mod screenshots;
 mod settings;
@@ -36,6 +37,10 @@ pub enum UiAction {
     RebindHotkey(String),
     RevealDataDir,
     OpenPath(PathBuf),
+    /// Pin the sticky with this id to a small always-on-top window.
+    PinSticky(String),
+    /// Stop showing the sticky with this id in its small window.
+    UnpinSticky(String),
 }
 
 /// Read-only data the UI needs from the app/platform layer.
@@ -190,6 +195,11 @@ impl OverlayUi {
     /// Whether the crop/annotate capture mode currently owns the overlay.
     pub fn is_capturing(&self) -> bool {
         self.capture.is_active()
+    }
+
+    /// Opens the Stickies tab (used by the screen-sticky Edit action).
+    pub fn open_stickies(&mut self) {
+        self.active_tab = Tab::Stickies;
     }
 
     /// Requests that the screenshot editor open this capture on the next frame.

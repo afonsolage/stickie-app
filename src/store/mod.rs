@@ -28,8 +28,9 @@ mod tests;
 mod workspace;
 
 pub use workspace::{
-    FileEntry, NoteEntry, StickyColor, StickyNote, Workspace, WorkspaceDescriptor,
-    sanitize_workspace_id,
+    FileEntry, NoteEntry, PINNED_STICKY_MAX_HEIGHT, PINNED_STICKY_MAX_WIDTH,
+    PINNED_STICKY_MIN_HEIGHT, PINNED_STICKY_MIN_WIDTH, PinnedSticky, StickyColor, StickyNote,
+    Workspace, WorkspaceDescriptor, sanitize_workspace_id,
 };
 
 use std::env;
@@ -421,11 +422,64 @@ impl Store {
     }
 
     /// Deletes a sticky note; deleting a missing id is not an error.
+    ///
+    /// Any matching pinned on-screen sticky is removed as well.
     pub fn delete_sticky(&mut self, sticky_id: &str) -> Result<()> {
         self.workspace
             .as_mut()
             .context("no workspace is open")?
             .delete_sticky(sticky_id)
+    }
+
+    /// Pinned on-screen stickies of the open workspace, in manifest order.
+    pub fn pinned_stickies(&self) -> &[PinnedSticky] {
+        self.workspace
+            .as_ref()
+            .map_or(&[], Workspace::pinned_stickies)
+    }
+
+    /// Returns `true` when the given sticky currently has an on-screen window.
+    pub fn is_sticky_pinned(&self, sticky_id: &str) -> bool {
+        self.workspace
+            .as_ref()
+            .is_some_and(|workspace| workspace.is_sticky_pinned(sticky_id))
+    }
+
+    /// Pins a sticky to the screen, or updates its geometry when already pinned.
+    ///
+    /// Pinning an unknown sticky id returns an error. Non-finite coordinates
+    /// become `0.0`; the size is clamped to the `PINNED_STICKY_*` bounds.
+    pub fn pin_sticky(
+        &mut self,
+        sticky_id: &str,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> Result<()> {
+        self.workspace
+            .as_mut()
+            .context("no workspace is open")?
+            .pin_sticky(sticky_id, x, y, width, height)
+    }
+
+    /// Unpins a sticky from the screen. Unpinning an unpinned sticky is a no-op.
+    pub fn unpin_sticky(&mut self, sticky_id: &str) -> Result<()> {
+        self.workspace
+            .as_mut()
+            .context("no workspace is open")?
+            .unpin_sticky(sticky_id)
+    }
+
+    /// Moves a pinned sticky to a new screen position and persists it.
+    ///
+    /// Returns an error when the sticky is not currently pinned. Non-finite
+    /// coordinates are replaced with `0.0`.
+    pub fn move_pinned_sticky(&mut self, sticky_id: &str, x: f32, y: f32) -> Result<()> {
+        self.workspace
+            .as_mut()
+            .context("no workspace is open")?
+            .move_pinned_sticky(sticky_id, x, y)
     }
 
     /// Saves an RGBA screenshot as a PNG with a unique, time-sortable name.

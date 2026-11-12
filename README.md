@@ -35,6 +35,12 @@ backdrop. The Windows build adds global-hotkey and capture affordances; see
 | --- | --- |
 | ![Full-screen capture overlay with a region-selection hint](docs/assets/overlay-capture-select.png) | ![Selected region with pen/rectangle/arrow toolbar](docs/assets/overlay-capture-annotate.png) |
 
+![Two minimal sticky cards floating on screen over a synthetic game backdrop](docs/assets/overlay-screen-stickies.png)
+
+*Pinned screen stickies over a synthetic game backdrop. The cards stay on top
+of the game while the main overlay is hidden; the Edit/Unpin controls appear on
+hover. Dev-build UI preview, not actual gameplay.*
+
 ## Why another overlay?
 
 Steam's overlay is great at chat and screenshots, but not at helping you *think*
@@ -61,6 +67,7 @@ remember, without leaving the game or alt-tabbing into a browser.
 | Game workspaces | Foreground executable detected when the overlay opens; one workspace per game | MVP (Windows) |
 | Notepads | Markdown files with formatting toolbar, live preview, keyboard shortcuts and debounced autosave | MVP |
 | Sticky notes | Color-coded quick notes persisted per game | MVP |
+| Screen stickies | Pin any sticky to a small always-on-top window over the game; minimal card with hover-only Edit/Unpin controls and persisted screen position | MVP (Windows) |
 | Capture overlay | Freeze the primary display, drag-select a region, then pen/rectangle/arrow annotate and save or insert into the note | MVP (Windows) |
 | Screenshot editor | Open saved captures to re-crop, draw (pen/rectangle/arrow), undo or save an annotated copy; high-resolution preview textures are downscaled to the GPU budget | MVP |
 | Folders | Organize saves/files under each workspace; remembers the last opened folder | MVP |
@@ -149,7 +156,7 @@ workspace.
 ├── logs\
 └── workspaces\
     └── exe-eldenring\
-        ├── workspace.toml      # display name, stickies, last folder
+        ├── workspace.toml      # display name, stickies, screen pins, last folder
         ├── Notes\              # plain Markdown files
         ├── Screenshots\        # PNG captures and annotations
         └── Files\              # your folders: saves, builds, reference images
@@ -246,11 +253,11 @@ Windows target. See [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help.
 - [x] Config, per-game workspaces, Markdown notes, stickies, folders
 - [x] Lightshot-style full-screen capture overlay (select, pen/rectangle/arrow, save, insert note)
 - [x] Screenshot editor for saved captures and capture worker
+- [x] Pinned screen stickies that remain over the game, independent of the overlay
 - [ ] Windows 11 manual validation and signed release builds
 - [ ] Multi-monitor overlay placement and per-game display memory
 - [ ] Rebindable hotkey capture UI and conflict diagnostics
 - [ ] Steam app-id mapping, recent-game switcher and workspace renaming
-- [ ] Pinned stickies that remain over the game, independent of the overlay
 - [ ] Clipboard copy, text/highlighter tools and multi-monitor capture
 - [ ] Auto-update or portable build (opt-in, no telemetry)
 

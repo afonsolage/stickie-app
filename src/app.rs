@@ -1,8 +1,9 @@
 //! Application bootstrap and overlay controller.
 //!
-//! Bevy owns the event loop, the single transparent overlay window and the egui
-//! render pass. The controller only does meaningful work when the overlay is
-//! visible; hidden, the app sleeps in winit's low-power update mode until the
+//! Bevy owns the event loop, the transparent overlay window and its egui render
+//! pass, plus the small pinned screen-sticky windows. The controller only does
+//! meaningful work when the overlay is visible or a pinned sticky receives
+//! input; otherwise the app sleeps in winit's low-power update mode until the
 //! global hotkey wakes it.
 
 use std::ops::{Deref, DerefMut};
@@ -24,6 +25,8 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use crate::platform::{self, GameContext};
 use crate::store::{Store, WorkspaceDescriptor};
 use crate::ui::{OverlayUi, UiAction, UiView};
+
+mod screen_stickies;
 
 /// The application name used in titles, paths and logs.
 pub const APP_NAME: &str = "Stickie";
@@ -75,6 +78,9 @@ pub enum AppCommand {
     RebindHotkey(String),
     RevealDataDir,
     OpenPath(PathBuf),
+    PinSticky(String),
+    UnpinSticky(String),
+    OpenStickies(String),
 }
 
 /// A request to register a different global hotkey. Handled by the platform
@@ -206,7 +212,8 @@ pub fn run() -> anyhow::Result<()> {
     .insert_resource(idle_winit_settings())
     .insert_resource(HotkeyPulse::default())
     .insert_resource(hotkey_info)
-    .add_plugins(StickiePlugin);
+    .add_plugins(StickiePlugin)
+    .add_plugins(screen_stickies::ScreenStickyPlugin);
 
     app.run();
     Ok(())
@@ -518,6 +525,50 @@ fn handle_commands(
                     ui.push_error(format!("Could not open {}: {error}", path.display()));
                 }
             }
+            AppCommand::PinSticky(id) => {
+                if store.is_sticky_pinned(id) {
+                    continue;
+                }
+                if store.pinned_stickies().len() >= screen_stickies::MAX_SCREEN_STICKIES {
+                    ui.push_error(format!(
+                        "You can keep at most {} stickies on screen.",
+                        screen_stickies::MAX_SCREEN_STICKIES
+                    ));
+                    continue;
+                }
+                let monitor = platform::primary_monitor_size()
+                    .unwrap_or((window.physical_width(), window.physical_height()));
+                let (x, y, width, height) =
+                    screen_stickies::next_pin_geometry(store.pinned_stickies().len(), monitor);
+                match store.pin_sticky(id, x, y, width, height) {
+                    Ok(()) => {
+                        ui.push_success("Sticky pinned. It will appear when you close the overlay.")
+                    }
+                    Err(error) => ui.push_error(format!("Could not pin sticky: {error:#}")),
+                }
+            }
+            AppCommand::UnpinSticky(id) => match store.unpin_sticky(id) {
+                Ok(()) => ui.push_info("Sticky removed from the screen."),
+                Err(error) => ui.push_error(format!("Could not unpin sticky: {error:#}")),
+            },
+            AppCommand::OpenStickies(_id) => {
+                if !matches!(capture.phase, CapturePhase::Idle) {
+                    continue;
+                }
+                if !overlay.visible {
+                    let game = overlay.game.clone();
+                    show_overlay_for_game(
+                        &mut ui,
+                        store.get_mut(),
+                        &mut overlay,
+                        &mut focus,
+                        &mut winit_settings,
+                        window.as_mut(),
+                        game,
+                    );
+                }
+                ui.open_stickies();
+            }
         }
     }
 }
@@ -530,7 +581,26 @@ fn show_overlay(
     winit_settings: &mut WinitSettings,
     window: &mut Window,
 ) {
-    let game = platform::active_game();
+    // A pinned screen-sticky window belongs to Stickie itself. If one has focus
+    // when the hotkey is pressed, keep the last game workspace instead of
+    // falling back to the Desktop workspace.
+    let game = if platform::foreground_is_own_process() {
+        overlay.game.clone()
+    } else {
+        platform::active_game()
+    };
+    show_overlay_for_game(ui, store, overlay, focus, winit_settings, window, game);
+}
+
+fn show_overlay_for_game(
+    ui: &mut OverlayUi,
+    store: &mut Store,
+    overlay: &mut OverlayState,
+    focus: &mut FocusRequest,
+    winit_settings: &mut WinitSettings,
+    window: &mut Window,
+    game: Option<GameContext>,
+) {
     if let Err(error) = open_workspace(store, game.as_ref()) {
         log::error!("failed to open workspace: {error:#}");
         ui.push_error(format!("Could not open workspace: {error}"));
@@ -778,6 +848,12 @@ fn draw_overlay(
             }
             UiAction::OpenPath(path) => {
                 commands.write(AppCommand::OpenPath(path));
+            }
+            UiAction::PinSticky(id) => {
+                commands.write(AppCommand::PinSticky(id));
+            }
+            UiAction::UnpinSticky(id) => {
+                commands.write(AppCommand::UnpinSticky(id));
             }
         }
     }

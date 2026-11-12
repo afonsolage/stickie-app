@@ -26,8 +26,7 @@ impl TempDir {
         let count = COUNTER.fetch_add(1, Ordering::Relaxed);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |duration| duration.as_nanos());
         let path = env::temp_dir().join(format!(
             "stickie-store-{label}-{}-{nanos}-{count}",
             process::id()
@@ -54,6 +53,13 @@ fn store_with_workspace(temp: &TempDir) -> Store {
         .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
         .expect("open workspace");
     store
+}
+
+/// Writes a raw `workspace.toml` for `exe-testgame` before the workspace opens.
+fn write_raw_workspace_manifest(temp: &TempDir, body: &str) {
+    let directory = temp.path().join("workspaces").join("exe-testgame");
+    fs::create_dir_all(&directory).expect("create raw workspace directory");
+    fs::write(directory.join("workspace.toml"), body).expect("write raw workspace manifest");
 }
 
 #[test]
@@ -182,7 +188,7 @@ fn corrupt_workspace_manifest_is_backed_up() {
     let workspace = store
         .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
         .expect("recover workspace");
-    assert!(workspace.stickies().is_empty());
+    assert_eq!(workspace.stickies(), []);
     assert!(manifest_path.is_file(), "a fresh manifest is written");
     let backup_path = temp
         .path()
@@ -216,7 +222,7 @@ fn workspace_open_reopen_restores_last_folder() {
         assert!(workspace.screenshots_dir().is_dir());
         assert!(workspace.files_dir().is_dir());
         assert!(workspace.root().join("workspace.toml").is_file());
-        assert!(workspace.stickies().is_empty());
+        assert_eq!(workspace.stickies(), []);
         assert!(workspace.last_folder().is_none());
         assert!(workspace.created_at() > 0);
     }
@@ -418,7 +424,7 @@ fn stickies_persist_across_reopen() {
     let mut store = store_with_workspace(&temp);
 
     let mut sticky = store.create_sticky().expect("create sticky");
-    assert!(!sticky.id.is_empty());
+    assert_ne!(sticky.id, "");
     assert_eq!(sticky.color, StickyColor::default());
     assert_eq!(StickyColor::default(), StickyColor::Amber);
 
@@ -469,7 +475,7 @@ fn stickies_persist_across_reopen() {
     reopened
         .delete_sticky(&sticky.id)
         .expect("delete last sticky");
-    assert!(reopened.stickies().is_empty());
+    assert_eq!(reopened.stickies(), []);
 }
 
 #[test]
@@ -512,4 +518,348 @@ fn screenshots_use_unique_names_and_list_newest_first() {
 
     let saved = image::open(&first).expect("open saved screenshot");
     assert_eq!((saved.width(), saved.height()), (4, 3));
+}
+
+#[test]
+fn pinned_stickies_persist_across_reopen() {
+    let temp = TempDir::new("pinned");
+    let mut store = store_with_workspace(&temp);
+    let sticky = store.create_sticky().expect("create sticky");
+    let other = store.create_sticky().expect("create second sticky");
+
+    assert!(!store.is_sticky_pinned(&sticky.id));
+    assert_eq!(store.pinned_stickies(), []);
+
+    store
+        .pin_sticky(&sticky.id, 120.0, -40.0, 320.0, 260.0)
+        .expect("pin sticky");
+    assert!(store.is_sticky_pinned(&sticky.id));
+    assert!(!store.is_sticky_pinned(&other.id));
+
+    let pinned = store.pinned_stickies().to_vec();
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(pinned[0].sticky_id, sticky.id);
+    assert!((pinned[0].x - 120.0).abs() < f32::EPSILON);
+    assert!((pinned[0].y - -40.0).abs() < f32::EPSILON);
+    assert!((pinned[0].width - 320.0).abs() < f32::EPSILON);
+    assert!((pinned[0].height - 260.0).abs() < f32::EPSILON);
+    // The workspace getter mirrors the store facade.
+    assert_eq!(
+        store.workspace().expect("workspace open").pinned_stickies(),
+        pinned.as_slice()
+    );
+    drop(store);
+
+    let mut reopened = Store::bootstrap_at(temp.path()).expect("reopen store");
+    reopened
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("reopen workspace");
+    assert_eq!(reopened.pinned_stickies(), pinned.as_slice());
+    assert!(reopened.is_sticky_pinned(&sticky.id));
+
+    reopened.unpin_sticky(&sticky.id).expect("unpin sticky");
+    assert!(!reopened.is_sticky_pinned(&sticky.id));
+    assert_eq!(reopened.pinned_stickies(), []);
+    reopened
+        .unpin_sticky(&sticky.id)
+        .expect("unpinning twice is a no-op");
+    drop(reopened);
+
+    let mut reopened = Store::bootstrap_at(temp.path()).expect("reopen store again");
+    reopened
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("reopen workspace again");
+    assert_eq!(reopened.pinned_stickies(), []);
+    assert_eq!(reopened.stickies().len(), 2);
+}
+
+#[test]
+fn old_manifest_without_pinned_stickies_loads() {
+    let temp = TempDir::new("old-manifest");
+    write_raw_workspace_manifest(
+        &temp,
+        r#"version = 1
+id = "exe-testgame"
+display_name = "Test Game"
+created_at = 100
+updated_at = 100
+
+[[stickies]]
+id = "sticky-old"
+text = "legacy sticky"
+color = "amber"
+x = 10.0
+y = 20.0
+width = 240.0
+height = 180.0
+created_at = 100
+updated_at = 100
+"#,
+    );
+
+    let mut store = Store::bootstrap_at(temp.path()).expect("bootstrap store");
+    let workspace = store
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("open legacy workspace");
+    assert_eq!(workspace.stickies().len(), 1);
+    assert_eq!(workspace.stickies()[0].id, "sticky-old");
+    assert_eq!(workspace.stickies()[0].text, "legacy sticky");
+    assert_eq!(workspace.pinned_stickies(), []);
+    assert_eq!(store.pinned_stickies(), []);
+    assert!(!store.is_sticky_pinned("sticky-old"));
+}
+
+#[test]
+fn pinning_twice_updates_geometry_instead_of_duplicating() {
+    let temp = TempDir::new("pin-twice");
+    let mut store = store_with_workspace(&temp);
+    let sticky = store.create_sticky().expect("create sticky");
+
+    store
+        .pin_sticky(&sticky.id, 10.0, 20.0, 200.0, 150.0)
+        .expect("first pin");
+    store
+        .pin_sticky(&sticky.id, 300.0, 400.0, 500.0, 350.0)
+        .expect("second pin updates geometry");
+    let pinned = store.pinned_stickies();
+    assert_eq!(pinned.len(), 1, "re-pinning must not duplicate the entry");
+    assert!((pinned[0].x - 300.0).abs() < f32::EPSILON);
+    assert!((pinned[0].y - 400.0).abs() < f32::EPSILON);
+    assert!((pinned[0].width - 500.0).abs() < f32::EPSILON);
+    assert!((pinned[0].height - 350.0).abs() < f32::EPSILON);
+
+    // Re-pinning also clamps out-of-range geometry.
+    store
+        .pin_sticky(&sticky.id, 999.0, 999.0, 1.0, 1.0)
+        .expect("third pin clamps geometry");
+    let pinned = store.pinned_stickies();
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(pinned[0].width, PINNED_STICKY_MIN_WIDTH);
+    assert_eq!(pinned[0].height, PINNED_STICKY_MIN_HEIGHT);
+    drop(store);
+
+    let mut reopened = Store::bootstrap_at(temp.path()).expect("reopen store");
+    reopened
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("reopen workspace");
+    let pinned = reopened.pinned_stickies();
+    assert_eq!(pinned.len(), 1);
+    assert!((pinned[0].x - 999.0).abs() < f32::EPSILON);
+    assert_eq!(pinned[0].width, PINNED_STICKY_MIN_WIDTH);
+}
+
+#[test]
+fn deleting_a_sticky_removes_its_pin() {
+    let temp = TempDir::new("delete-pinned");
+    let mut store = store_with_workspace(&temp);
+    let doomed = store.create_sticky().expect("create sticky");
+    let kept = store.create_sticky().expect("create second sticky");
+    store
+        .pin_sticky(&doomed.id, 10.0, 20.0, 240.0, 180.0)
+        .expect("pin doomed sticky");
+    store
+        .pin_sticky(&kept.id, 30.0, 40.0, 260.0, 200.0)
+        .expect("pin kept sticky");
+
+    store.delete_sticky(&doomed.id).expect("delete sticky");
+    assert!(!store.is_sticky_pinned(&doomed.id));
+    assert!(store.is_sticky_pinned(&kept.id));
+    assert_eq!(store.pinned_stickies().len(), 1);
+    assert_eq!(store.pinned_stickies()[0].sticky_id, kept.id);
+    drop(store);
+
+    let mut reopened = Store::bootstrap_at(temp.path()).expect("reopen store");
+    reopened
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("reopen workspace");
+    assert_eq!(reopened.stickies().len(), 1);
+    assert_eq!(reopened.pinned_stickies().len(), 1);
+    assert_eq!(reopened.pinned_stickies()[0].sticky_id, kept.id);
+}
+
+#[test]
+fn pin_geometry_is_sanitized() {
+    let temp = TempDir::new("pin-sanitize");
+    let mut store = store_with_workspace(&temp);
+    let sticky = store.create_sticky().expect("create sticky");
+
+    store
+        .pin_sticky(&sticky.id, f32::NAN, f32::INFINITY, 10.0, 10_000.0)
+        .expect("pin with non-finite geometry");
+    let pinned = store.pinned_stickies();
+    assert_eq!(pinned[0].x, 0.0);
+    assert_eq!(pinned[0].y, 0.0);
+    assert_eq!(pinned[0].width, PINNED_STICKY_MIN_WIDTH);
+    assert_eq!(pinned[0].height, PINNED_STICKY_MAX_HEIGHT);
+
+    store
+        .pin_sticky(&sticky.id, 5.0, 6.0, f32::NAN, f32::NEG_INFINITY)
+        .expect("pin with non-finite size");
+    let pinned = store.pinned_stickies();
+    assert!((pinned[0].x - 5.0).abs() < f32::EPSILON);
+    assert!((pinned[0].y - 6.0).abs() < f32::EPSILON);
+    assert!(pinned[0].width.is_finite());
+    assert!(pinned[0].height.is_finite());
+    assert!((PINNED_STICKY_MIN_WIDTH..=PINNED_STICKY_MAX_WIDTH).contains(&pinned[0].width));
+    assert!((PINNED_STICKY_MIN_HEIGHT..=PINNED_STICKY_MAX_HEIGHT).contains(&pinned[0].height));
+
+    assert!(
+        store
+            .pin_sticky("missing-sticky", 0.0, 0.0, 240.0, 180.0)
+            .is_err()
+    );
+}
+
+#[test]
+fn malformed_pinned_geometry_is_sanitized_on_load() {
+    let temp = TempDir::new("pinned-sanitize-load");
+    write_raw_workspace_manifest(
+        &temp,
+        r#"version = 1
+id = "exe-testgame"
+display_name = "Test Game"
+
+[[stickies]]
+id = "sticky-a"
+text = "a"
+
+[[pinned_stickies]]
+sticky_id = "sticky-a"
+x = 42.0
+y = 43.0
+width = 300.0
+height = 250.0
+
+[[pinned_stickies]]
+sticky_id = "sticky-a"
+x = "not a number"
+
+[[pinned_stickies]]
+sticky_id = "sticky-a"
+x = nan
+y = inf
+width = -50.0
+height = 100000.0
+"#,
+    );
+
+    let mut store = Store::bootstrap_at(temp.path()).expect("bootstrap store");
+    let workspace = store
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("open workspace with malformed pins");
+    let pinned = workspace.pinned_stickies();
+    assert_eq!(
+        pinned.len(),
+        1,
+        "malformed entry is dropped, duplicates merged"
+    );
+    assert_eq!(pinned[0].sticky_id, "sticky-a");
+    assert_eq!(pinned[0].x, 0.0);
+    assert_eq!(pinned[0].y, 0.0);
+    assert_eq!(pinned[0].width, PINNED_STICKY_MIN_WIDTH);
+    assert_eq!(pinned[0].height, PINNED_STICKY_MAX_HEIGHT);
+}
+
+#[test]
+fn stale_pins_are_dropped_on_load() {
+    let temp = TempDir::new("pinned-stale");
+    write_raw_workspace_manifest(
+        &temp,
+        r#"version = 1
+id = "exe-testgame"
+display_name = "Test Game"
+
+[[stickies]]
+id = "sticky-a"
+text = "a"
+
+[[pinned_stickies]]
+sticky_id = "ghost"
+x = 1.0
+y = 2.0
+width = 240.0
+height = 180.0
+
+[[pinned_stickies]]
+sticky_id = "sticky-a"
+x = 30.0
+y = 40.0
+width = 240.0
+height = 180.0
+"#,
+    );
+
+    let mut store = Store::bootstrap_at(temp.path()).expect("bootstrap store");
+    let workspace = store
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("open workspace with stale pin");
+    let pinned = workspace.pinned_stickies();
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(pinned[0].sticky_id, "sticky-a");
+
+    // The cleaned manifest is persisted on open, so the stale pin is gone.
+    let manifest = fs::read_to_string(
+        temp.path()
+            .join("workspaces")
+            .join("exe-testgame")
+            .join("workspace.toml"),
+    )
+    .expect("read persisted manifest");
+    assert!(
+        !manifest.contains("ghost"),
+        "stale pin should not be rewritten"
+    );
+    assert!(manifest.contains("sticky-a"));
+}
+
+#[test]
+fn move_pinned_sticky_updates_position() {
+    let temp = TempDir::new("pinned-move");
+    let mut store = store_with_workspace(&temp);
+    let sticky = store.create_sticky().expect("create sticky");
+    store
+        .pin_sticky(&sticky.id, 10.0, 20.0, 300.0, 200.0)
+        .expect("pin sticky");
+
+    store
+        .move_pinned_sticky(&sticky.id, -150.0, 240.5)
+        .expect("move pinned sticky");
+    let pinned = store.pinned_stickies();
+    assert!((pinned[0].x - -150.0).abs() < f32::EPSILON);
+    assert!((pinned[0].y - 240.5).abs() < f32::EPSILON);
+    assert!((pinned[0].width - 300.0).abs() < f32::EPSILON);
+    assert!(
+        store
+            .move_pinned_sticky("missing-sticky", 0.0, 0.0)
+            .is_err()
+    );
+    store
+        .move_pinned_sticky(&sticky.id, f32::NAN, f32::NEG_INFINITY)
+        .expect("move sanitizes non-finite coordinates");
+    assert_eq!(store.pinned_stickies()[0].x, 0.0);
+    assert_eq!(store.pinned_stickies()[0].y, 0.0);
+    drop(store);
+
+    let mut reopened = Store::bootstrap_at(temp.path()).expect("reopen store");
+    reopened
+        .open_workspace(WorkspaceDescriptor::new("exe-testgame", "Test Game"))
+        .expect("reopen workspace");
+    assert_eq!(reopened.pinned_stickies().len(), 1);
+    assert_eq!(reopened.pinned_stickies()[0].x, 0.0);
+    assert_eq!(reopened.pinned_stickies()[0].y, 0.0);
+}
+
+#[test]
+fn pinned_api_requires_an_open_workspace() {
+    let temp = TempDir::new("pinned-no-workspace");
+    let mut store = Store::bootstrap_at(temp.path()).expect("bootstrap store");
+    assert_eq!(store.pinned_stickies(), []);
+    assert!(!store.is_sticky_pinned("anything"));
+    assert!(
+        store
+            .pin_sticky("anything", 0.0, 0.0, 240.0, 180.0)
+            .is_err()
+    );
+    assert!(store.unpin_sticky("anything").is_err());
+    assert!(store.move_pinned_sticky("anything", 0.0, 0.0).is_err());
 }

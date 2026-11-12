@@ -48,7 +48,7 @@ impl StickiesTab {
         &mut self,
         ui: &mut egui::Ui,
         store: &mut Store,
-        _actions: &mut Vec<UiAction>,
+        actions: &mut Vec<UiAction>,
     ) -> Option<(String, theme::ToastKind)> {
         let mut notice = None;
         if store.workspace().is_none() {
@@ -125,6 +125,14 @@ impl StickiesTab {
             return notice;
         }
 
+        // Precompute pinned ids so the card loop can mutate the board without
+        // holding a second `Store` borrow inside the grid.
+        let pinned: BTreeSet<String> = store
+            .pinned_stickies()
+            .iter()
+            .map(|pinned| pinned.sticky_id.clone())
+            .collect();
+
         let cards_area = (ui.available_height() - 4.0).max(180.0);
         ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -148,6 +156,8 @@ impl StickiesTab {
                             let mut changed = false;
                             let mut palette_change: Option<StoreColor> = None;
                             let mut delete = false;
+                            // Some(true) = pin, Some(false) = unpin.
+                            let mut pin_toggle: Option<bool> = None;
                             let sticky = &mut self.stickies[card_index];
                             ui.push_id(&sticky.id, |ui| {
                                 let color = theme_color(sticky.color);
@@ -178,6 +188,16 @@ impl StickiesTab {
                                                                     210,
                                                                 )),
                                                         );
+                                                        if pinned.contains(&sticky.id) {
+                                                            ui.label(
+                                                                RichText::new("· on screen")
+                                                                    .font(theme::font_small())
+                                                                    .color(theme::tint(
+                                                                        color.accent(),
+                                                                        190,
+                                                                    )),
+                                                            );
+                                                        }
                                                         ui.with_layout(
                                                             egui::Layout::right_to_left(
                                                                 egui::Align::Center,
@@ -199,6 +219,42 @@ impl StickiesTab {
                                                                     .clicked()
                                                                 {
                                                                     delete = true;
+                                                                }
+
+                                                                let is_pinned =
+                                                                    pinned.contains(&sticky.id);
+                                                                let pin_label = if is_pinned {
+                                                                    "Unpin"
+                                                                } else {
+                                                                    "Pin"
+                                                                };
+                                                                let pin_color = theme::tint(
+                                                                    color.text(),
+                                                                    if is_pinned {
+                                                                        220
+                                                                    } else {
+                                                                        170
+                                                                    },
+                                                                );
+                                                                let pin = ui.add(
+                                                                    egui::Button::new(
+                                                                        RichText::new(pin_label)
+                                                                            .font(
+                                                                                theme::font_small(),
+                                                                            )
+                                                                            .color(pin_color),
+                                                                    )
+                                                                    .frame(false),
+                                                                );
+                                                                if pin
+                                                                    .on_hover_text(if is_pinned {
+                                                                        "Remove from screen"
+                                                                    } else {
+                                                                        "Pin to screen"
+                                                                    })
+                                                                    .clicked()
+                                                                {
+                                                                    pin_toggle = Some(!is_pinned);
                                                                 }
                                                             },
                                                         );
@@ -276,6 +332,14 @@ impl StickiesTab {
                             }
                             if delete {
                                 self.pending_delete = Some(sticky.id.clone());
+                            }
+                            if let Some(pin) = pin_toggle {
+                                let id = self.stickies[card_index].id.clone();
+                                if pin {
+                                    actions.push(UiAction::PinSticky(id));
+                                } else {
+                                    actions.push(UiAction::UnpinSticky(id));
+                                }
                             }
                         }
                     });

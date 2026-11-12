@@ -31,6 +31,12 @@ pub fn active_game() -> Option<GameContext> {
     None
 }
 
+/// Windows-only: whether the foreground window belongs to Stickie. Always
+/// `false` on the stub.
+pub fn foreground_is_own_process() -> bool {
+    false
+}
+
 /// Windows-only: restores focus to the game window. No-op here.
 pub fn restore_game_focus(_game: &GameContext) {}
 

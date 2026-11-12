@@ -34,6 +34,18 @@ const MANIFEST_VERSION: u32 = 1;
 const DEFAULT_STICKY_WIDTH: f32 = 240.0;
 /// Default height of a freshly created sticky note.
 const DEFAULT_STICKY_HEIGHT: f32 = 180.0;
+/// Default width of a pinned on-screen sticky in physical pixels.
+const DEFAULT_PINNED_STICKY_WIDTH: f32 = 240.0;
+/// Default height of a pinned on-screen sticky in physical pixels.
+const DEFAULT_PINNED_STICKY_HEIGHT: f32 = 180.0;
+/// Minimum persisted width of a pinned on-screen sticky in physical pixels.
+pub const PINNED_STICKY_MIN_WIDTH: f32 = 180.0;
+/// Maximum persisted width of a pinned on-screen sticky in physical pixels.
+pub const PINNED_STICKY_MAX_WIDTH: f32 = 720.0;
+/// Minimum persisted height of a pinned on-screen sticky in physical pixels.
+pub const PINNED_STICKY_MIN_HEIGHT: f32 = 100.0;
+/// Maximum persisted height of a pinned on-screen sticky in physical pixels.
+pub const PINNED_STICKY_MAX_HEIGHT: f32 = 600.0;
 /// Longest workspace folder name that is generated from a raw id.
 const MAX_WORKSPACE_ID_LEN: usize = 64;
 /// Safety valve for unique-name loops; hitting this is a hard error.
@@ -390,6 +402,40 @@ impl Default for StickyNote {
     }
 }
 
+/// A sticky note that is also rendered in a small always-on-top OS window.
+///
+/// Geometry is stored in physical pixels so it survives DPI changes on the
+/// monitor the window was placed on. The store clamps sizes to sane bounds and
+/// replaces non-finite values, so readers never observe NaN rectangles.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PinnedSticky {
+    /// Id of the [`StickyNote`] this pin renders.
+    pub sticky_id: String,
+    /// Screen x position in physical pixels.
+    pub x: f32,
+    /// Screen y position in physical pixels.
+    pub y: f32,
+    /// Window width in physical pixels, clamped between
+    /// [`PINNED_STICKY_MIN_WIDTH`] and [`PINNED_STICKY_MAX_WIDTH`].
+    pub width: f32,
+    /// Window height in physical pixels, clamped between
+    /// [`PINNED_STICKY_MIN_HEIGHT`] and [`PINNED_STICKY_MAX_HEIGHT`].
+    pub height: f32,
+}
+
+impl Default for PinnedSticky {
+    fn default() -> Self {
+        Self {
+            sticky_id: String::new(),
+            x: 0.0,
+            y: 0.0,
+            width: DEFAULT_PINNED_STICKY_WIDTH,
+            height: DEFAULT_PINNED_STICKY_HEIGHT,
+        }
+    }
+}
+
 /// A markdown note stored as a plain `.md` file in the workspace `Notes/` folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoteEntry {
@@ -431,6 +477,8 @@ struct Manifest {
     updated_at: u64,
     last_folder: Option<String>,
     stickies: Vec<StickyNote>,
+    #[serde(default, deserialize_with = "deserialize_pinned_stickies")]
+    pinned_stickies: Vec<PinnedSticky>,
 }
 
 impl Default for Manifest {
@@ -445,6 +493,7 @@ impl Default for Manifest {
             updated_at: 0,
             last_folder: None,
             stickies: Vec::new(),
+            pinned_stickies: Vec::new(),
         }
     }
 }
@@ -464,6 +513,7 @@ pub struct Workspace {
     updated_at: u64,
     last_folder: Option<String>,
     stickies: Vec<StickyNote>,
+    pinned_stickies: Vec<PinnedSticky>,
 }
 
 impl Workspace {
@@ -503,7 +553,7 @@ impl Workspace {
         });
 
         let now = now_unix_secs();
-        let (created_at, last_folder, stickies) = match existing {
+        let (created_at, last_folder, stickies, pinned_stickies) = match existing {
             Some(manifest) => {
                 if manifest.version > MANIFEST_VERSION {
                     log::warn!(
@@ -518,6 +568,10 @@ impl Workspace {
                     .as_deref()
                     .and_then(|value| normalize_relative_string(value).ok())
                     .filter(|value| !value.is_empty());
+                let stickies = manifest.stickies;
+                // Drop pins that point at stickies which no longer exist and
+                // repair malformed geometry before the manifest is rewritten.
+                let pinned_stickies = sanitize_pinned_stickies(manifest.pinned_stickies, &stickies);
                 (
                     if manifest.created_at == 0 {
                         now
@@ -525,10 +579,11 @@ impl Workspace {
                         manifest.created_at
                     },
                     last_folder,
-                    manifest.stickies,
+                    stickies,
+                    pinned_stickies,
                 )
             }
-            None => (now, None, Vec::new()),
+            None => (now, None, Vec::new(), Vec::new()),
         };
 
         let workspace = Self {
@@ -544,6 +599,7 @@ impl Workspace {
             updated_at: now,
             last_folder,
             stickies,
+            pinned_stickies,
         };
         workspace.persist()?;
         Ok(workspace)
@@ -561,6 +617,7 @@ impl Workspace {
             updated_at: self.updated_at,
             last_folder: self.last_folder.clone(),
             stickies: self.stickies.clone(),
+            pinned_stickies: self.pinned_stickies.clone(),
         };
         let contents =
             toml::to_string_pretty(&manifest).context("failed to serialize workspace manifest")?;
@@ -625,6 +682,86 @@ impl Workspace {
     /// All sticky notes attached to this workspace.
     pub fn stickies(&self) -> &[StickyNote] {
         &self.stickies
+    }
+
+    /// Pinned on-screen stickies attached to this workspace, in manifest order.
+    pub fn pinned_stickies(&self) -> &[PinnedSticky] {
+        &self.pinned_stickies
+    }
+
+    /// Returns `true` when `sticky_id` currently has an on-screen window.
+    pub fn is_sticky_pinned(&self, sticky_id: &str) -> bool {
+        self.pinned_stickies
+            .iter()
+            .any(|pinned| pinned.sticky_id == sticky_id)
+    }
+
+    /// Pins a sticky to the screen, or updates its geometry when already pinned.
+    ///
+    /// `sticky_id` must refer to an existing sticky note; pinning an unknown id
+    /// returns an error. Non-finite coordinates become `0.0`, widths are
+    /// clamped between [`PINNED_STICKY_MIN_WIDTH`] and
+    /// [`PINNED_STICKY_MAX_WIDTH`], and heights between
+    /// [`PINNED_STICKY_MIN_HEIGHT`] and [`PINNED_STICKY_MAX_HEIGHT`].
+    pub fn pin_sticky(
+        &mut self,
+        sticky_id: &str,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> Result<()> {
+        if !self.stickies.iter().any(|sticky| sticky.id == sticky_id) {
+            bail!("cannot pin unknown sticky note {sticky_id:?}");
+        }
+        let mut pinned = PinnedSticky {
+            sticky_id: sticky_id.to_string(),
+            x,
+            y,
+            width,
+            height,
+        };
+        sanitize_pinned_geometry(&mut pinned);
+        match self
+            .pinned_stickies
+            .iter_mut()
+            .find(|existing| existing.sticky_id == pinned.sticky_id)
+        {
+            Some(existing) => *existing = pinned,
+            None => self.pinned_stickies.push(pinned),
+        }
+        self.updated_at = now_unix_secs();
+        self.persist()
+    }
+
+    /// Unpins a sticky from the screen and persists the manifest.
+    ///
+    /// Unpinning a sticky that is not pinned is a no-op.
+    pub fn unpin_sticky(&mut self, sticky_id: &str) -> Result<()> {
+        let previous_len = self.pinned_stickies.len();
+        self.pinned_stickies
+            .retain(|pinned| pinned.sticky_id != sticky_id);
+        if self.pinned_stickies.len() != previous_len {
+            self.updated_at = now_unix_secs();
+            self.persist()?;
+        }
+        Ok(())
+    }
+
+    /// Moves a pinned sticky to a new screen position and persists the manifest.
+    ///
+    /// Returns an error when `sticky_id` is not currently pinned. Non-finite
+    /// coordinates are replaced with `0.0`.
+    pub fn move_pinned_sticky(&mut self, sticky_id: &str, x: f32, y: f32) -> Result<()> {
+        let pinned = self
+            .pinned_stickies
+            .iter_mut()
+            .find(|pinned| pinned.sticky_id == sticky_id)
+            .with_context(|| format!("sticky note {sticky_id:?} is not pinned"))?;
+        pinned.x = if x.is_finite() { x } else { 0.0 };
+        pinned.y = if y.is_finite() { y } else { 0.0 };
+        self.updated_at = now_unix_secs();
+        self.persist()
     }
 
     /// Lists notes sorted by modification time, newest first.
@@ -911,10 +1048,15 @@ impl Workspace {
     }
 
     /// Deletes a sticky note; deleting a missing id is not an error.
+    ///
+    /// Any matching pinned on-screen sticky is removed as well.
     pub(crate) fn delete_sticky(&mut self, sticky_id: &str) -> Result<()> {
-        let previous_len = self.stickies.len();
+        let previous_stickies = self.stickies.len();
+        let previous_pins = self.pinned_stickies.len();
         self.stickies.retain(|sticky| sticky.id != sticky_id);
-        if self.stickies.len() != previous_len {
+        self.pinned_stickies
+            .retain(|pinned| pinned.sticky_id != sticky_id);
+        if self.stickies.len() != previous_stickies || self.pinned_stickies.len() != previous_pins {
             self.updated_at = now_unix_secs();
             self.persist()?;
         }
@@ -1102,4 +1244,71 @@ fn sanitize_geometry(sticky: &mut StickyNote) {
     if !sticky.height.is_finite() || sticky.height <= 0.0 {
         sticky.height = DEFAULT_STICKY_HEIGHT;
     }
+}
+
+/// Sanitises the persisted geometry of a pinned on-screen sticky.
+fn sanitize_pinned_geometry(pinned: &mut PinnedSticky) {
+    if !pinned.x.is_finite() {
+        pinned.x = 0.0;
+    }
+    if !pinned.y.is_finite() {
+        pinned.y = 0.0;
+    }
+    pinned.width = if pinned.width.is_finite() {
+        pinned
+            .width
+            .clamp(PINNED_STICKY_MIN_WIDTH, PINNED_STICKY_MAX_WIDTH)
+    } else {
+        DEFAULT_PINNED_STICKY_WIDTH
+    };
+    pinned.height = if pinned.height.is_finite() {
+        pinned
+            .height
+            .clamp(PINNED_STICKY_MIN_HEIGHT, PINNED_STICKY_MAX_HEIGHT)
+    } else {
+        DEFAULT_PINNED_STICKY_HEIGHT
+    };
+}
+
+/// Drops stale or duplicate pins and repairs geometry after loading a manifest.
+///
+/// A pin is stale when its sticky note no longer exists. Duplicate ids keep the
+/// last manifest entry so the most recent geometry wins.
+fn sanitize_pinned_stickies(pins: Vec<PinnedSticky>, stickies: &[StickyNote]) -> Vec<PinnedSticky> {
+    let mut sanitized: Vec<PinnedSticky> = Vec::with_capacity(pins.len());
+    for mut pinned in pins {
+        if pinned.sticky_id.trim().is_empty()
+            || !stickies.iter().any(|sticky| sticky.id == pinned.sticky_id)
+        {
+            continue;
+        }
+        sanitize_pinned_geometry(&mut pinned);
+        match sanitized
+            .iter_mut()
+            .find(|existing| existing.sticky_id == pinned.sticky_id)
+        {
+            Some(existing) => *existing = pinned,
+            None => sanitized.push(pinned),
+        }
+    }
+    sanitized
+}
+
+/// Tolerant deserialiser for the manifest `pinned_stickies` array.
+///
+/// A single malformed entry is logged and dropped instead of failing the whole
+/// manifest (which would trigger the recovery path and hide the user's stickies).
+fn deserialize_pinned_stickies<'de, D>(deserializer: D) -> Result<Vec<PinnedSticky>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values = Vec::<toml::Value>::deserialize(deserializer)?;
+    let mut pinned = Vec::with_capacity(values.len());
+    for value in values {
+        match PinnedSticky::deserialize(value) {
+            Ok(entry) => pinned.push(entry),
+            Err(error) => log::warn!("dropping malformed pinned sticky entry: {error}"),
+        }
+    }
+    Ok(pinned)
 }
